@@ -41,9 +41,9 @@ default("AimbotEnabled", false)
 default("AimbotStrength", 15)
 default("AimbotTeamCheck", true)
 default("HighlightESPEnabled", true)
-default("BoneESPEnabled", true)
-default("NametagESPEnabled", true)
-default("ArmorESPEnabled", true)
+default("BoneESPEnabled", false)
+default("NametagESPEnabled", false)
+default("ArmorESPEnabled", false)
 G.FlyEnabled = false
 
 local connections = {}
