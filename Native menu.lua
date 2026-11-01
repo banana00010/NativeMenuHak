@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 local G = (getgenv and getgenv()) or _G
+local runActive = true
 
 -- Re-run safety: remove everything the previous run created
 if G.NativeMenuCleanup then
@@ -312,7 +313,7 @@ end
 track(LocalPlayer.CharacterAdded:Connect(function(character)
     if G.FlyEnabled then
         character:WaitForChild("HumanoidRootPart", 5)
-        if G.FlyEnabled then
+        if runActive and G.FlyEnabled then
             startFly()
         end
     end
@@ -677,7 +678,7 @@ local function CreateArmorESP(player, character, data)
 end
 
 local function CreatePlayerESP(player)
-    if player == LocalPlayer then
+    if not runActive or player == LocalPlayer then
         return
     end
 
@@ -734,9 +735,13 @@ local function TrackESPPlayer(player)
 
     conns[#conns + 1] = player.CharacterAdded:Connect(function(character)
         character:WaitForChild("Head", 5)
+        if not runActive or not player.Parent or player.Character ~= character then
+            return
+        end
+
         task.wait(0.5) -- let the limbs load so the skeleton is complete
 
-        if player.Parent and player.Character == character then
+        if runActive and player.Parent and player.Character == character then
             CreatePlayerESP(player)
         end
     end)
@@ -778,10 +783,14 @@ track(LocalPlayer:GetPropertyChangedSignal("Team"):Connect(RefreshESP))
 -- Watchdog: once a second, rebuild ESP that is missing or went stale
 -- (character swapped, Head/Humanoid streamed in late, adornee destroyed).
 local espWatchdogActive = true
+local espWatchdogThread
 
-task.spawn(function()
+espWatchdogThread = task.spawn(function()
     while espWatchdogActive do
         task.wait(1)
+        if not runActive then
+            break
+        end
 
         local anyEnabled = G.HighlightESPEnabled or G.BoneESPEnabled
             or G.NametagESPEnabled or G.ArmorESPEnabled
@@ -881,20 +890,20 @@ local MinimizeButton = makeTitleButton("-", -66, Color3.fromRGB(60, 60, 75))
 
 local minimized = false
 
-MinimizeButton.MouseButton1Click:Connect(function()
+track(MinimizeButton.MouseButton1Click:Connect(function()
     minimized = not minimized
     Container.Visible = not minimized
     MainFrame.Size = UDim2.new(0, 260, 0, minimized and 40 or 420)
     MinimizeButton.Text = minimized and "+" or "-"
-end)
+end))
 
 -- Close removes the menu and undoes everything (fly, noclip, speed, ESP...)
-CloseButton.MouseButton1Click:Connect(function()
+track(CloseButton.MouseButton1Click:Connect(function()
     if G.NativeMenuCleanup then
         G.NativeMenuCleanup()
         G.NativeMenuCleanup = nil
     end
-end)
+end))
 
 local UIListLayout = Instance.new("UIListLayout")
 UIListLayout.Padding = UDim.new(0, 8)
@@ -972,14 +981,14 @@ local function CreateToggle(text, key, callback)
     render()
     togglers[key] = render
 
-    button.MouseButton1Click:Connect(function()
+    track(button.MouseButton1Click:Connect(function()
         G[key] = not G[key]
         render()
 
         if callback then
             callback(G[key])
         end
-    end)
+    end))
 end
 
 local function CreateTextBox(placeholder, callback)
@@ -999,12 +1008,12 @@ local function CreateTextBox(placeholder, callback)
     corner.CornerRadius = UDim.new(0, 4)
     corner.Parent = box
 
-    box.FocusLost:Connect(function()
+    track(box.FocusLost:Connect(function()
         local num = tonumber(box.Text)
         if num then
             callback(num)
         end
-    end)
+    end))
 end
 
 -- Should set the player atutribe to true so i never die
@@ -1126,7 +1135,12 @@ end))
 -- ==========================================================
 
 G.NativeMenuCleanup = function()
+    runActive = false
     espWatchdogActive = false
+    if espWatchdogThread then
+        task.cancel(espWatchdogThread)
+        espWatchdogThread = nil
+    end
     pcall(function()
         RunService:UnbindFromRenderStep("NativeAimbot")
     end)
