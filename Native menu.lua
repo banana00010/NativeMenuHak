@@ -1007,18 +1007,17 @@ local function CreateTextBox(placeholder, callback)
     end)
 end
 
--- Should set the player atribute to true so i never die
+-- Should set the player atutribe to true so i never die
 
-task.spawn(function()
-  while true do
-    local player = game:FindtService("Players"):FindFirstChild(LocalPlayer)
-    if player then
-      player:SetAttribute("Alive", true)
-      player:SetAttribute("HasDied", false)
-    end
-    task.wait(1)
-  end
-end)
+-- task.spawn(function()
+--   while true do
+--     if LocalPlayer then
+--       LocalPlayer:SetAttribute("Alive", true)
+--       LocalPlayer:SetAttribute("HasDied", false)
+--     end
+--     task.wait(1)
+--   end
+-- end)
 
 
 -- Typing a value turns the matching feature on so it takes effect
