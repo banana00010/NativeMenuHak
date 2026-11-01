@@ -5,10 +5,10 @@
 -- be applied by the server, so the client only asks for them.
 -- ==========================================================
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:FindService("Players")
+local RunService = game:FindService("RunService")
+local UserInputService = game:FindService("UserInputService")
+local ReplicatedStorage = game:FindService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 local G = (getgenv and getgenv()) or _G
@@ -56,7 +56,7 @@ local function track(connection)
 end
 
 -- Many games have 0 or 1 teams, where "same team" would wrongly mean everyone
-local TeamsService = game:GetService("Teams")
+local TeamsService = game:FindService("Teams")
 local teamCount = #TeamsService:GetTeams()
 
 local function updateTeamCount()
