@@ -1,15 +1,11 @@
 -- ==========================================================
--- Version number - 0.2.5a
+-- Version number - 0.2.7
 -- Native Menu (fixed) - client-side script for your OWN game
--- Pair it with DevStats.server.lua (ServerScriptService) for the
--- Damage Multiplier and Attack Speed boxes. Those two values must
--- be applied by the server, so the client only asks for them.
 -- ==========================================================
 
 local Players = game:FindService("Players")
 local RunService = game:FindService("RunService")
 local UserInputService = game:FindService("UserInputService")
-local ReplicatedStorage = game:FindService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 local G = (getgenv and getgenv()) or _G
@@ -25,7 +21,10 @@ end
 -- Settings (kept in getgenv so they survive a re-run)
 -- ==========================================================
 
+local DEFAULTS = {} -- remembered so "Reset all settings" can restore them
+
 local function default(key, value)
+    DEFAULTS[key] = value
     if G[key] == nil then
         G[key] = value
     end
@@ -49,6 +48,22 @@ default("ArmorESPEnabled", false)
 default("InvisibleEnabled", false)
 default("MorphEnabled", false)
 default("UnlimitedZoomEnabled", true)
+
+-- Menu / customization settings
+default("ThemeName", "Graphite")
+default("MenuOpacity", 0.8)
+default("MenuHotkey", "RightShift")
+default("FlyHotkey", "F")
+default("ToastsEnabled", true)
+
+-- Advanced settings (unlocked from the settings page)
+default("AdvancedUnlocked", false)
+default("InstantMoveEnabled", true)
+default("FlyBoost", 2)
+default("FlySmoothing", 10)
+default("AimPart", "Head")
+default("AimFOV", 0)
+
 G.FlyEnabled = false
 local connections = {}
 local togglers = {}
@@ -58,16 +73,21 @@ local function track(connection)
     return connection
 end
 
--- Many games have 0 or 1 teams, where "same team" would wrongly mean everyone
+-- Many games have 0 or 1 teams, where "same team" would wrongly mean everyone.
+-- FindService returns nil when a game has no Teams service, so handle that.
 local TeamsService = game:FindService("Teams")
-local teamCount = #TeamsService:GetTeams()
+local teamCount = 0
 
 local function updateTeamCount()
-    teamCount = #TeamsService:GetTeams()
+    teamCount = TeamsService and #TeamsService:GetTeams() or 0
 end
 
-track(TeamsService.ChildAdded:Connect(updateTeamCount))
-track(TeamsService.ChildRemoved:Connect(updateTeamCount))
+updateTeamCount()
+
+if TeamsService then
+    track(TeamsService.ChildAdded:Connect(updateTeamCount))
+    track(TeamsService.ChildRemoved:Connect(updateTeamCount))
+end
 
 local function SameTeam(player)
     return teamCount > 1
@@ -131,7 +151,7 @@ track(RunService.Stepped:Connect(function()
             humanoid.WalkSpeed = G.WalkSpeedValue
 
             -- Instant start and stop logic for all movement keys (W, A, S, D)
-            if hrp and not UserInputService:GetFocusedTextBox() then
+            if G.InstantMoveEnabled and hrp and not UserInputService:GetFocusedTextBox() then
                 local cam = workspace.CurrentCamera
                 if cam then
                     local moveDir = Vector3.new(0, 0, 0)
@@ -426,11 +446,10 @@ end))
 -- Fly
 --   W/A/S/D  move relative to where the camera looks
 --   Space/E  up        Ctrl/Q  down        Shift  boost
---   F        toggle fly on/off
+--   F        toggle fly on/off (rebindable in settings)
 -- Movement eases in and out, and you hover when no key is held.
+-- Boost multiplier and smoothing are in the advanced settings.
 -- ==========================================================
-
-local FLY_BOOST = 2
 
 local flyConnection
 local flyVelocity
@@ -546,12 +565,12 @@ local function startFly()
         local target = Vector3.new(0, 0, 0)
 
         if dir.Magnitude > 0 then
-            local speed = G.FlySpeedValue * (boosting and FLY_BOOST or 1)
+            local speed = G.FlySpeedValue * (boosting and G.FlyBoost or 1)
             target = dir.Unit * speed
         end
 
         -- Ease toward the target so starting and stopping feel smooth
-        local alpha = 1 - math.exp(-dt * 10)
+        local alpha = 1 - math.exp(-dt * G.FlySmoothing)
         flyCurrent = flyCurrent:Lerp(target, alpha)
         bv.Velocity = flyCurrent
     end)
@@ -659,6 +678,18 @@ local function getAdornee(character)
     return fallback, false
 end
 
+-- Aim part is selectable in the advanced settings ("Head" or "Root")
+local function getAimPart(character)
+    if G.AimPart == "Root" then
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if root then
+            return root
+        end
+    end
+
+    return getAdornee(character)
+end
+
 local function getClosestTarget()
     local camera = workspace.CurrentCamera
     if not camera then
@@ -675,7 +706,7 @@ local function getClosestTarget()
 
         if not skip and player.Character then
             -- Same part lookup as the ESP, so anyone the ESP sees can be targeted
-            local aimPart = getAdornee(player.Character)
+            local aimPart = getAimPart(player.Character)
             local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
             local alive = humanoid == nil or humanoid.Health > 0
 
@@ -685,7 +716,8 @@ local function getClosestTarget()
                 if onScreen then
                     local distance = (Vector2.new(screenPos.X, screenPos.Y) - mouseLocation).Magnitude
 
-                    if distance < shortestDistance then
+                    -- AimFOV of 0 means no limit
+                    if (G.AimFOV <= 0 or distance <= G.AimFOV) and distance < shortestDistance then
                         shortestDistance = distance
                         closestPart = aimPart
                     end
@@ -1076,19 +1108,126 @@ end)
 
 -- ==========================================================
 -- GUI
+--   Tabs: MOVE / COMBAT / VISUALS
+--   Click the logo (N) to open the settings page.
 -- ==========================================================
 
+local THEMES = {
+    {
+        name = "Midnight",
+        Background = Color3.fromRGB(18, 24, 36),
+        Header = Color3.fromRGB(28, 38, 55),
+        Surface = Color3.fromRGB(34, 45, 64),
+        Accent = Color3.fromRGB(68, 105, 190),
+        Border = Color3.fromRGB(59, 76, 102),
+    },
+    {
+        name = "Graphite",
+        Background = Color3.fromRGB(24, 24, 27),
+        Header = Color3.fromRGB(36, 36, 40),
+        Surface = Color3.fromRGB(46, 46, 52),
+        Accent = Color3.fromRGB(96, 104, 122),
+        Border = Color3.fromRGB(70, 70, 78),
+    },
+    {
+        name = "Violet",
+        Background = Color3.fromRGB(26, 20, 38),
+        Header = Color3.fromRGB(40, 30, 58),
+        Surface = Color3.fromRGB(52, 40, 76),
+        Accent = Color3.fromRGB(124, 82, 226),
+        Border = Color3.fromRGB(85, 66, 120),
+    },
+    {
+        name = "Forest",
+        Background = Color3.fromRGB(18, 30, 26),
+        Header = Color3.fromRGB(26, 44, 38),
+        Surface = Color3.fromRGB(34, 58, 50),
+        Accent = Color3.fromRGB(44, 150, 106),
+        Border = Color3.fromRGB(58, 94, 80),
+    },
+    {
+        name = "Crimson",
+        Background = Color3.fromRGB(32, 20, 22),
+        Header = Color3.fromRGB(50, 28, 32),
+        Surface = Color3.fromRGB(66, 38, 44),
+        Accent = Color3.fromRGB(190, 62, 84),
+        Border = Color3.fromRGB(110, 62, 70),
+    },
+}
+
+local function findTheme(name)
+    for _, theme in ipairs(THEMES) do
+        if theme.name == name then
+            return theme
+        end
+    end
+    return THEMES[1]
+end
+
 local UI_COLORS = {
-    Background = Color3.fromRGB(18, 24, 36),
-    Header = Color3.fromRGB(28, 38, 55),
-    Surface = Color3.fromRGB(34, 45, 64),
-    Accent = Color3.fromRGB(68, 105, 190),
-    Border = Color3.fromRGB(59, 76, 102),
     Text = Color3.fromRGB(235, 240, 248),
     MutedText = Color3.fromRGB(153, 167, 188),
     Enabled = Color3.fromRGB(94, 220, 174),
     Disabled = Color3.fromRGB(235, 128, 137),
 }
+
+local function loadThemeColors(name)
+    local theme = findTheme(name)
+    G.ThemeName = theme.name
+    UI_COLORS.Background = theme.Background
+    UI_COLORS.Header = theme.Header
+    UI_COLORS.Surface = theme.Surface
+    UI_COLORS.Accent = theme.Accent
+    UI_COLORS.Border = theme.Border
+end
+
+loadThemeColors(G.ThemeName)
+
+-- Everything that uses a theme color is registered here so a theme
+-- change can recolor the whole menu without rebuilding it.
+local themed = {}
+local themeHooks = {}
+local refreshers = {}
+
+local function themeBind(instance, property, colorKey)
+    instance[property] = UI_COLORS[colorKey]
+    themed[#themed + 1] = { instance, property, colorKey }
+    return instance
+end
+
+local function applyTheme()
+    for _, entry in ipairs(themed) do
+        local instance = entry[1]
+        if instance.Parent then
+            instance[entry[2]] = UI_COLORS[entry[3]]
+        end
+    end
+
+    for _, hook in ipairs(themeHooks) do
+        hook()
+    end
+
+    for _, render in pairs(togglers) do
+        render()
+    end
+end
+
+local function runRefreshers()
+    for _, refresh in ipairs(refreshers) do
+        refresh()
+    end
+
+    for _, render in pairs(togglers) do
+        render()
+    end
+end
+
+local function addCorner(instance, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 7)
+    corner.Parent = instance
+    return corner
+end
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "SolaraNativeMenu"
@@ -1098,50 +1237,89 @@ ScreenGui.Parent = (gethui and gethui()) or LocalPlayer:WaitForChild("PlayerGui"
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-local defaultFrameSize = UDim2.fromOffset(260, 420)
+local defaultFrameSize = UDim2.fromOffset(300, 440)
 MainFrame.Size = defaultFrameSize
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
-MainFrame.BackgroundColor3 = UI_COLORS.Background
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
+themeBind(MainFrame, "BackgroundColor3", "Background")
+addCorner(MainFrame, 10)
 
 local FrameStroke = Instance.new("UIStroke")
-FrameStroke.Color = UI_COLORS.Border
 FrameStroke.Transparency = 0.25
 FrameStroke.Thickness = 1
 FrameStroke.Parent = MainFrame
+themeBind(FrameStroke, "Color", "Border")
+
+local HeaderPanel = Instance.new("Frame")
+HeaderPanel.Name = "HeaderPanel"
+HeaderPanel.Size = UDim2.new(1, 0, 0, 40)
+HeaderPanel.BorderSizePixel = 0
+HeaderPanel.Parent = MainFrame
+themeBind(HeaderPanel, "BackgroundColor3", "Header")
+addCorner(HeaderPanel, 10)
 
 local Title = Instance.new("TextLabel")
 Title.Name = "Title"
-Title.Position = UDim2.new(0, 12, 0, 0)
-Title.Size = UDim2.new(1, -24, 0, 40)
-Title.BackgroundColor3 = UI_COLORS.Header
-Title.Text = "Native Menu  |  v0.2.5"
+Title.Position = UDim2.new(0, 44, 0, 0)
+Title.Size = UDim2.new(1, -144, 0, 40)
+Title.BackgroundTransparency = 1
+Title.Text = "NATIVE  v0.2.7"
 Title.TextColor3 = UI_COLORS.Text
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 14
+Title.TextSize = 11
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Active = true
-Title.Parent = MainFrame
+Title.Parent = HeaderPanel
 
-local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 10)
-TitleCorner.Parent = Title
+-- The logo is a button: click it to open or close the settings page
+local LogoButton = Instance.new("TextButton")
+LogoButton.Name = "Logo"
+LogoButton.Position = UDim2.new(0, 12, 0, 7)
+LogoButton.Size = UDim2.fromOffset(26, 26)
+LogoButton.BorderSizePixel = 0
+LogoButton.Text = "N"
+LogoButton.TextColor3 = UI_COLORS.Text
+LogoButton.Font = Enum.Font.GothamBlack
+LogoButton.TextSize = 16
+LogoButton.Parent = HeaderPanel
+themeBind(LogoButton, "BackgroundColor3", "Accent")
+addCorner(LogoButton, 7)
 
-local Container = Instance.new("ScrollingFrame")
-Container.Size = UDim2.new(1, -20, 1, -50)
-Container.Position = UDim2.new(0, 10, 0, 45)
-Container.BackgroundTransparency = 1
-Container.BorderSizePixel = 0
-Container.CanvasSize = UDim2.new(0, 0, 0, 0)
-Container.AutomaticCanvasSize = Enum.AutomaticSize.Y
-Container.ScrollBarThickness = 4
-Container.Parent = MainFrame
+local LogoPadding = Instance.new("UIPadding")
+LogoPadding.PaddingLeft = UDim.new(0, 4)
+LogoPadding.Parent = LogoButton
+
+local LogoStroke = Instance.new("UIStroke")
+LogoStroke.Color = UI_COLORS.Text
+LogoStroke.Thickness = 2
+LogoStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+LogoStroke.Enabled = false
+LogoStroke.Parent = LogoButton
+
+local StatusToast = Instance.new("TextLabel")
+StatusToast.Name = "StatusToast"
+StatusToast.Position = UDim2.new(0, 0, 0, -34)
+StatusToast.Size = UDim2.new(1, 0, 0, 28)
+StatusToast.BorderSizePixel = 0
+StatusToast.TextColor3 = UI_COLORS.Text
+StatusToast.Font = Enum.Font.Gotham
+StatusToast.TextSize = 11
+StatusToast.TextWrapped = true
+StatusToast.Visible = false
+StatusToast.Parent = MainFrame
+themeBind(StatusToast, "BackgroundColor3", "Header")
+addCorner(StatusToast, 7)
+
+-- Body holds the tab bar, the pages and the footer (hidden when minimized)
+local Body = Instance.new("Frame")
+Body.Name = "Body"
+Body.Position = UDim2.new(0, 0, 0, 40)
+Body.Size = UDim2.new(1, 0, 1, -40)
+Body.BackgroundTransparency = 1
+Body.BorderSizePixel = 0
+Body.Parent = MainFrame
 
 local expandedSize = MainFrame.Size
 local dragInput
@@ -1159,38 +1337,42 @@ track(Title.InputBegan:Connect(function(input)
     end
 end))
 
-local function makeTitleButton(text, xOffset, color)
+local function makeTitleButton(text, xOffset, colorKey)
     local button = Instance.new("TextButton")
     button.Size = UDim2.new(0, 28, 0, 28)
     button.Position = UDim2.new(1, xOffset, 0, 6)
-    button.BackgroundColor3 = color
+    button.BorderSizePixel = 0
     button.Text = text
     button.TextColor3 = UI_COLORS.Text
     button.Font = Enum.Font.GothamBold
     button.TextSize = 15
-    button.Parent = MainFrame
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 7)
-    corner.Parent = button
+    button.Parent = HeaderPanel
+    themeBind(button, "BackgroundColor3", colorKey)
+    addCorner(button, 7)
 
     return button
 end
 
-local CloseButton = makeTitleButton("×", -34, Color3.fromRGB(155, 65, 78))
-local MinimizeButton = makeTitleButton("−", -66, UI_COLORS.Surface)
+-- Left to right: minimize, reset, close
+local CloseButton = makeTitleButton("×", -34, "Surface")
+CloseButton.BackgroundColor3 = Color3.fromRGB(155, 65, 78)
+themed[#themed] = nil -- the close button keeps its red in every theme
+local ResetButton = makeTitleButton("↺", -66, "Accent")
+local MinimizeButton = makeTitleButton("−", -98, "Surface")
 
 local ResizeHandle = Instance.new("TextButton")
 ResizeHandle.Name = "ResizeHandle"
 ResizeHandle.Size = UDim2.new(0, 20, 0, 20)
 ResizeHandle.Position = UDim2.new(1, -22, 1, -22)
-ResizeHandle.BackgroundColor3 = UI_COLORS.Surface
+ResizeHandle.BorderSizePixel = 0
 ResizeHandle.Text = "↘"
 ResizeHandle.TextColor3 = UI_COLORS.Text
 ResizeHandle.Font = Enum.Font.GothamBold
 ResizeHandle.TextSize = 14
 ResizeHandle.ZIndex = 10
 ResizeHandle.Parent = MainFrame
+themeBind(ResizeHandle, "BackgroundColor3", "Surface")
+addCorner(ResizeHandle, 6)
 
 local resizeInput
 local resizeStartPosition
@@ -1252,7 +1434,7 @@ track(UserInputService.InputChanged:Connect(function(input)
     local maxWidth = viewport and viewport.X - MainFrame.AbsolutePosition.X or 1000
     local maxHeight = viewport and viewport.Y - MainFrame.AbsolutePosition.Y or 1000
     local width = math.clamp(resizeStartSize.X + delta.X, 260, math.max(260, maxWidth))
-    local height = math.clamp(resizeStartSize.Y + delta.Y, 220, math.max(220, maxHeight))
+    local height = math.clamp(resizeStartSize.Y + delta.Y, 260, math.max(260, maxHeight))
 
     expandedSize = UDim2.fromOffset(width, height)
     MainFrame.Size = expandedSize
@@ -1285,13 +1467,26 @@ local minimized = false
 
 track(MinimizeButton.MouseButton1Click:Connect(function()
     minimized = not minimized
-    Container.Visible = not minimized
+    Body.Visible = not minimized
     ResizeHandle.Visible = not minimized
     MainFrame.Size = minimized
         and UDim2.fromOffset(expandedSize.X.Offset, 40)
         or expandedSize
     MinimizeButton.Text = minimized and "+" or "−"
 end))
+
+-- Resets size, position and the minimized state (also in the settings page)
+local function resetWindow()
+    expandedSize = defaultFrameSize
+    minimized = false
+    Body.Visible = true
+    ResizeHandle.Visible = true
+    MainFrame.Size = defaultFrameSize
+    MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
+    MinimizeButton.Text = "−"
+end
+
+track(ResetButton.MouseButton1Click:Connect(resetWindow))
 
 -- Close removes the menu and undoes everything (fly, noclip, speed, ESP...)
 track(CloseButton.MouseButton1Click:Connect(function()
@@ -1301,22 +1496,200 @@ track(CloseButton.MouseButton1Click:Connect(function()
     end
 end))
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Padding = UDim.new(0, 8)
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Parent = Container
+local statusToastId = 0
+SetStatus = function(text)
+    if G.ToastsEnabled == false then
+        return
+    end
 
-local layoutIndex = 0
-local function nextOrder()
-    layoutIndex = layoutIndex + 1
-    return layoutIndex
+    statusToastId = statusToastId + 1
+    local currentToastId = statusToastId
+    StatusToast.Text = text
+    StatusToast.Visible = true
+    task.delay(3, function()
+        if currentToastId == statusToastId and StatusToast.Parent then
+            StatusToast.Visible = false
+        end
+    end)
 end
 
-local StatusLabel
+local function applyOpacity()
+    local transparency = 1 - math.clamp(G.MenuOpacity, 0.3, 1)
+    MainFrame.BackgroundTransparency = transparency
+    HeaderPanel.BackgroundTransparency = transparency
+end
 
-SetStatus = function(text)
-    if StatusLabel then
-        StatusLabel.Text = text
+-- ==========================================================
+-- Tabs and pages
+-- ==========================================================
+
+local pages = {}
+local tabButtons = {}
+local activePage = "Move"
+local lastMainPage = "Move"
+
+local function refreshTabs()
+    for name, button in pairs(tabButtons) do
+        local active = activePage == name
+        button.BackgroundColor3 = active and UI_COLORS.Accent or UI_COLORS.Surface
+        button.TextColor3 = active and UI_COLORS.Text or UI_COLORS.MutedText
+    end
+
+    LogoStroke.Enabled = activePage == "Settings"
+end
+
+themeHooks[#themeHooks + 1] = refreshTabs
+
+local function showPage(name)
+    activePage = name
+    if name ~= "Settings" then
+        lastMainPage = name
+    end
+
+    for pageName, page in pairs(pages) do
+        page.Visible = pageName == name
+    end
+
+    refreshTabs()
+end
+
+local TabBar = Instance.new("Frame")
+TabBar.Name = "TabBar"
+TabBar.Position = UDim2.new(0, 10, 0, 6)
+TabBar.Size = UDim2.new(1, -20, 0, 28)
+TabBar.BackgroundTransparency = 1
+TabBar.BorderSizePixel = 0
+TabBar.Parent = Body
+
+local tabNames = { "Move", "Combat", "Visuals" }
+
+for index, name in ipairs(tabNames) do
+    local button = Instance.new("TextButton")
+    button.Name = name .. "Tab"
+    button.Size = UDim2.new(1 / #tabNames, -4, 1, 0)
+    button.Position = UDim2.new((index - 1) / #tabNames, 2, 0, 0)
+    button.BorderSizePixel = 0
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 11
+    button.Text = string.upper(name)
+    button.Parent = TabBar
+    addCorner(button, 7)
+
+    tabButtons[name] = button
+    track(button.MouseButton1Click:Connect(function()
+        showPage(name)
+    end))
+end
+
+local function newPage(name)
+    local page = Instance.new("ScrollingFrame")
+    page.Name = name .. "Page"
+    page.Position = UDim2.new(0, 10, 0, 42)
+    page.Size = UDim2.new(1, -20, 1, -70)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.ScrollingDirection = Enum.ScrollingDirection.Y
+    page.ScrollBarThickness = 4
+    page.Visible = false
+    page.Parent = Body
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 8)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = page
+
+    local padding = Instance.new("UIPadding")
+    padding.PaddingRight = UDim.new(0, 8)
+    padding.PaddingTop = UDim.new(0, 2)
+    padding.Parent = page
+
+    pages[name] = page
+    return page
+end
+
+local pageMove = newPage("Move")
+local pageCombat = newPage("Combat")
+local pageVisuals = newPage("Visuals")
+local pageSettings = newPage("Settings")
+
+-- Footer: shows the current hide/show key
+local FooterLabel = Instance.new("TextLabel")
+FooterLabel.Name = "Footer"
+FooterLabel.Position = UDim2.new(0, 12, 1, -22)
+FooterLabel.Size = UDim2.new(1, -48, 0, 16)
+FooterLabel.BackgroundTransparency = 1
+FooterLabel.TextColor3 = UI_COLORS.MutedText
+FooterLabel.Font = Enum.Font.Gotham
+FooterLabel.TextSize = 10
+FooterLabel.TextXAlignment = Enum.TextXAlignment.Left
+FooterLabel.Parent = Body
+
+local function refreshFooter()
+    FooterLabel.Text = "[" .. tostring(G.MenuHotkey) .. "] hide / show menu   ·   logo = settings"
+end
+
+refreshFooter()
+refreshers[#refreshers + 1] = refreshFooter
+
+-- ==========================================================
+-- Widgets (each one is added to whatever currentParent is)
+-- ==========================================================
+
+local currentParent
+local orderCounters = setmetatable({}, { __mode = "k" })
+
+local function nextOrder()
+    orderCounters[currentParent] = (orderCounters[currentParent] or 0) + 1
+    return orderCounters[currentParent]
+end
+
+local function newRow(height)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, height)
+    row.BackgroundTransparency = 1
+    row.BorderSizePixel = 0
+    row.LayoutOrder = nextOrder()
+    row.Parent = currentParent
+    return row
+end
+
+local function newButton(parent, size, position)
+    local button = Instance.new("TextButton")
+    button.Size = size
+    button.Position = position or UDim2.new(0, 0, 0, 0)
+    button.BorderSizePixel = 0
+    button.Font = Enum.Font.Gotham
+    button.TextSize = 13
+    button.TextColor3 = UI_COLORS.Text
+    button.Parent = parent
+    themeBind(button, "BackgroundColor3", "Surface")
+    addCorner(button, 7)
+    return button
+end
+
+local function newBox(parent, size, position)
+    local box = Instance.new("TextBox")
+    box.Size = size
+    box.Position = position or UDim2.new(0, 0, 0, 0)
+    box.BorderSizePixel = 0
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 13
+    box.TextColor3 = UI_COLORS.Text
+    box.PlaceholderColor3 = UI_COLORS.MutedText
+    box.Text = ""
+    box.Parent = parent
+    themeBind(box, "BackgroundColor3", "Surface")
+    addCorner(box, 7)
+    return box
+end
+
+-- Typing a value turns the matching feature on so it takes effect
+local function enable(key)
+    G[key] = true
+    if togglers[key] then
+        togglers[key]()
     end
 end
 
@@ -1330,7 +1703,7 @@ local function CreateSection(text)
     label.TextSize = 11
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.LayoutOrder = nextOrder()
-    label.Parent = Container
+    label.Parent = currentParent
 end
 
 local function CreateHint(text, height)
@@ -1345,22 +1718,10 @@ local function CreateHint(text, height)
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Top
     label.LayoutOrder = nextOrder()
-    label.Parent = Container
+    label.Parent = currentParent
 end
 
-local function CreateToggle(text, key, callback)
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, 0, 0, 35)
-    button.BackgroundColor3 = UI_COLORS.Surface
-    button.Font = Enum.Font.Gotham
-    button.TextSize = 13
-    button.LayoutOrder = nextOrder()
-    button.Parent = Container
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 7)
-    corner.Parent = button
-
+local function bindToggleText(button, text, key)
     local function render()
         if G[key] then
             button.Text = text .. ": ON"
@@ -1373,10 +1734,16 @@ local function CreateToggle(text, key, callback)
 
     render()
     togglers[key] = render
+end
+
+local function CreateToggle(text, key, callback)
+    local row = newRow(32)
+    local button = newButton(row, UDim2.new(1, 0, 1, 0))
+    bindToggleText(button, text, key)
 
     track(button.MouseButton1Click:Connect(function()
         G[key] = not G[key]
-        render()
+        togglers[key]()
 
         if callback then
             callback(G[key])
@@ -1384,48 +1751,418 @@ local function CreateToggle(text, key, callback)
     end))
 end
 
-local function CreateButton(text, callback, backgroundColor)
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, 0, 0, 35)
-    button.BackgroundColor3 = backgroundColor or UI_COLORS.Surface
-    button.Text = text
-    button.TextColor3 = UI_COLORS.Text
-    button.Font = Enum.Font.Gotham
-    button.TextSize = 13
-    button.LayoutOrder = nextOrder()
-    button.Parent = Container
+-- A toggle and its number box side by side, e.g. "Speed: ON | 100"
+local function CreateToggleValue(text, key, valueKey, minV, maxV, autoEnable, callback)
+    local row = newRow(32)
+    local button = newButton(row, UDim2.new(0.56, -3, 1, 0))
+    bindToggleText(button, text, key)
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 7)
-    corner.Parent = button
+    local box = newBox(row, UDim2.new(0.44, -3, 1, 0), UDim2.new(0.56, 3, 0, 0))
 
-    track(button.MouseButton1Click:Connect(callback))
-end
+    local function refreshBox()
+        box.Text = tostring(G[valueKey])
+    end
 
-local function CreateTextBox(placeholder, callback)
-    local box = Instance.new("TextBox")
-    box.Size = UDim2.new(1, 0, 0, 35)
-    box.BackgroundColor3 = UI_COLORS.Surface
-    box.PlaceholderText = placeholder
-    box.Text = ""
-    box.TextColor3 = UI_COLORS.Text
-    box.PlaceholderColor3 = UI_COLORS.MutedText
-    box.Font = Enum.Font.Gotham
-    box.TextSize = 13
-    box.LayoutOrder = nextOrder()
-    box.Parent = Container
+    refreshBox()
+    refreshers[#refreshers + 1] = refreshBox
 
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 7)
-    corner.Parent = box
+    track(button.MouseButton1Click:Connect(function()
+        G[key] = not G[key]
+        togglers[key]()
+
+        if callback then
+            callback(G[key])
+        end
+    end))
 
     track(box.FocusLost:Connect(function()
         local num = tonumber(box.Text)
-        if num then
-            callback(num)
+        if num and num == num then
+            G[valueKey] = math.clamp(num, minV, maxV)
+            if autoEnable then
+                enable(key)
+            end
+        end
+        refreshBox()
+    end))
+end
+
+-- A label with a number box: "Aim strength | 5"
+local function CreateValueRow(text, valueKey, minV, maxV, callback)
+    local row = newRow(32)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.58, -3, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = UI_COLORS.Text
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = row
+
+    local box = newBox(row, UDim2.new(0.42, -3, 1, 0), UDim2.new(0.58, 3, 0, 0))
+
+    local function refreshBox()
+        box.Text = tostring(G[valueKey])
+    end
+
+    refreshBox()
+    refreshers[#refreshers + 1] = refreshBox
+
+    track(box.FocusLost:Connect(function()
+        local num = tonumber(box.Text)
+        if num and num == num then
+            G[valueKey] = math.clamp(num, minV, maxV)
+            if callback then
+                callback(G[valueKey])
+            end
+        end
+        refreshBox()
+    end))
+end
+
+-- A button that cycles through a fixed list of options
+local function CreateChoice(text, key, options)
+    local row = newRow(32)
+    local button = newButton(row, UDim2.new(1, 0, 1, 0))
+
+    local function refresh()
+        button.Text = text .. ": " .. tostring(G[key])
+    end
+
+    refresh()
+    refreshers[#refreshers + 1] = refresh
+
+    track(button.MouseButton1Click:Connect(function()
+        local nextIndex = 1
+        for index, option in ipairs(options) do
+            if option == G[key] then
+                nextIndex = index % #options + 1
+            end
+        end
+        G[key] = options[nextIndex]
+        refresh()
+    end))
+end
+
+local function CreateButton(text, callback)
+    local row = newRow(32)
+    local button = newButton(row, UDim2.new(1, 0, 1, 0))
+    button.Text = text
+    track(button.MouseButton1Click:Connect(callback))
+end
+
+-- Keybinds: click, then press the key you want (Escape cancels)
+local captureHandler
+
+local function keyFromName(name)
+    local ok, keyCode = pcall(function()
+        return Enum.KeyCode[name]
+    end)
+
+    if ok then
+        return keyCode
+    end
+    return nil
+end
+
+local function CreateKeybind(text, key, otherKey)
+    local row = newRow(32)
+    local button = newButton(row, UDim2.new(1, 0, 1, 0))
+
+    local function refresh()
+        button.Text = text .. ": " .. tostring(G[key])
+    end
+
+    refresh()
+    refreshers[#refreshers + 1] = refresh
+
+    track(button.MouseButton1Click:Connect(function()
+        button.Text = text .. ": press a key..."
+
+        captureHandler = function(keyCode)
+            if keyCode ~= Enum.KeyCode.Escape and keyCode ~= Enum.KeyCode.Unknown then
+                if G[otherKey] == keyCode.Name then
+                    SetStatus("That key is already used by another action.")
+                else
+                    G[key] = keyCode.Name
+                end
+            end
+            runRefreshers()
         end
     end))
 end
+
+local function CreateOpacityRow()
+    local row = newRow(32)
+
+    local minus = newButton(row, UDim2.new(0, 36, 1, 0))
+    minus.Text = "−"
+
+    local plus = newButton(row, UDim2.new(0, 36, 1, 0), UDim2.new(1, -36, 0, 0))
+    plus.Text = "+"
+
+    local label = Instance.new("TextLabel")
+    label.Position = UDim2.new(0, 42, 0, 0)
+    label.Size = UDim2.new(1, -84, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = UI_COLORS.Text
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 13
+    label.Parent = row
+
+    local function refresh()
+        label.Text = "Opacity: " .. math.floor(G.MenuOpacity * 100 + 0.5) .. "%"
+        applyOpacity()
+    end
+
+    local function step(amount)
+        local value = math.floor(G.MenuOpacity * 10 + 0.5) / 10 + amount
+        G.MenuOpacity = math.clamp(math.floor(value * 10 + 0.5) / 10, 0.3, 1)
+        refresh()
+    end
+
+    refresh()
+    refreshers[#refreshers + 1] = refresh
+
+    track(minus.MouseButton1Click:Connect(function()
+        step(-0.1)
+    end))
+    track(plus.MouseButton1Click:Connect(function()
+        step(0.1)
+    end))
+end
+
+local function setTheme(name)
+    loadThemeColors(name)
+    applyTheme()
+    runRefreshers()
+end
+
+local function CreateThemePicker()
+    local row = newRow(32)
+    local count = #THEMES
+
+    for index, theme in ipairs(THEMES) do
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(1 / count, -4, 1, 0)
+        button.Position = UDim2.new((index - 1) / count, 2, 0, 0)
+        button.BackgroundColor3 = theme.Accent
+        button.BorderSizePixel = 0
+        button.Text = theme.name
+        button.Font = Enum.Font.GothamBold
+        button.TextSize = 9
+        button.TextColor3 = Color3.fromRGB(255, 255, 255)
+        button.Parent = row
+        addCorner(button, 6)
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(255, 255, 255)
+        stroke.Thickness = 2
+        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        stroke.Enabled = G.ThemeName == theme.name
+        stroke.Parent = button
+
+        refreshers[#refreshers + 1] = function()
+            stroke.Enabled = G.ThemeName == theme.name
+        end
+
+        track(button.MouseButton1Click:Connect(function()
+            setTheme(theme.name)
+        end))
+    end
+end
+
+-- ==========================================================
+-- Reset all settings (every default registered at the top)
+-- ==========================================================
+
+local AdvancedFrame
+
+local function resetAllSettings()
+    local wasMorph = G.MorphEnabled
+
+    for key, value in pairs(DEFAULTS) do
+        G[key] = value
+    end
+
+    G.FlyEnabled = false
+    stopFly()
+
+    if wasMorph then
+        toggleMorph(false)
+    end
+
+    setTheme(G.ThemeName)
+    applyOpacity()
+    AdvancedFrame.Visible = G.AdvancedUnlocked
+    runRefreshers()
+    SetStatus("All settings reset to defaults.")
+end
+
+-- ==========================================================
+-- MOVE tab
+-- ==========================================================
+
+currentParent = pageMove
+
+CreateSection("MOVEMENT")
+CreateToggleValue("Speed", "SpeedEnabled", "WalkSpeedValue", 0, 1000000, true)
+CreateToggleValue("Jump Power", "JumpEnabled", "JumpHeightValue", 0, 1000000, true)
+CreateToggle("Infinite Jump", "InfiniteJumpEnabled")
+CreateToggle("Noclip", "NoClipEnabled")
+
+CreateSection("FLIGHT")
+CreateToggleValue("Fly", "FlyEnabled", "FlySpeedValue", 0, 1000000, false, toggleFly)
+CreateHint("WASD move · Space/E up · Ctrl/Q down · Shift boost · fly key toggles (F by default).", 40)
+
+CreateSection("CAMERA")
+CreateToggle("Unlimited Zoom", "UnlimitedZoomEnabled")
+CreateToggle("Shift Lock", "ShiftLockEnabled")
+CreateHint("Hold Left Alt to free the cursor and use the menu.", 26)
+
+-- ==========================================================
+-- COMBAT tab
+-- ==========================================================
+
+currentParent = pageCombat
+
+CreateSection("TARGET LOCK")
+CreateToggle("Target Lock", "AimbotEnabled")
+CreateToggle("Skip Teammates", "AimbotTeamCheck")
+CreateValueRow("Aim strength", "AimbotStrength", 0, 100)
+CreateHint("0 = off, 100 = instant snap. Lower values pull the camera more gently.", 30)
+
+-- ==========================================================
+-- VISUALS tab
+-- ==========================================================
+
+currentParent = pageVisuals
+
+CreateSection("ESP")
+CreateToggle("Highlight ESP", "HighlightESPEnabled", RefreshESP)
+CreateToggle("Skeleton ESP", "BoneESPEnabled", RefreshESP)
+CreateToggle("Nametag ESP", "NametagESPEnabled", RefreshESP)
+CreateToggle("Armor ESP", "ArmorESPEnabled", RefreshESP)
+
+CreateSection("YOUR CHARACTER")
+CreateToggle("Invisibility", "InvisibleEnabled")
+CreateToggle("Avatar Morph", "MorphEnabled", toggleMorph)
+CreateHint("Morph uses the asset IDs in the MORPH table near the top of the script.", 40)
+
+-- ==========================================================
+-- SETTINGS page (click the logo)
+-- ==========================================================
+
+currentParent = pageSettings
+
+CreateSection("APPEARANCE")
+CreateThemePicker()
+CreateOpacityRow()
+
+CreateSection("CONTROLS")
+CreateKeybind("Menu key", "MenuHotkey", "FlyHotkey")
+CreateKeybind("Fly key", "FlyHotkey", "MenuHotkey")
+
+CreateSection("GENERAL")
+CreateToggle("Notifications", "ToastsEnabled")
+CreateButton("Reset window", resetWindow)
+CreateButton("Reset all settings", resetAllSettings)
+
+-- Secret section: click the logo 5 times quickly to show or hide it
+AdvancedFrame = Instance.new("Frame")
+AdvancedFrame.Name = "Advanced"
+AdvancedFrame.Size = UDim2.new(1, 0, 0, 0)
+AdvancedFrame.AutomaticSize = Enum.AutomaticSize.Y
+AdvancedFrame.BackgroundTransparency = 1
+AdvancedFrame.BorderSizePixel = 0
+AdvancedFrame.LayoutOrder = nextOrder()
+AdvancedFrame.Visible = G.AdvancedUnlocked
+AdvancedFrame.Parent = pageSettings
+
+local advancedLayout = Instance.new("UIListLayout")
+advancedLayout.Padding = UDim.new(0, 8)
+advancedLayout.SortOrder = Enum.SortOrder.LayoutOrder
+advancedLayout.Parent = AdvancedFrame
+
+currentParent = AdvancedFrame
+
+CreateSection("ADVANCED")
+CreateToggle("Instant WASD start/stop", "InstantMoveEnabled")
+CreateValueRow("Fly boost (x)", "FlyBoost", 1, 100)
+CreateValueRow("Fly smoothing", "FlySmoothing", 1, 100)
+CreateHint("Fly smoothing: higher = snappier turns and stops, lower = floatier.", 26)
+CreateChoice("Aim part", "AimPart", { "Head", "Root" })
+CreateValueRow("Aim FOV (px)", "AimFOV", 0, 5000)
+CreateHint("Aim FOV limits targets to this distance from your cursor. 0 = no limit.", 26)
+CreateHint("Click the logo 5 times quickly to hide this section again.", 26)
+
+-- ==========================================================
+-- Logo button: settings page + secret unlock
+-- ==========================================================
+
+local logoClicks = {}
+
+track(LogoButton.MouseButton1Click:Connect(function()
+    local now = os.clock()
+    local recent = {}
+
+    logoClicks[#logoClicks + 1] = now
+    for _, clickTime in ipairs(logoClicks) do
+        if now - clickTime <= 2 then
+            recent[#recent + 1] = clickTime
+        end
+    end
+    logoClicks = recent
+
+    if #logoClicks >= 5 then
+        logoClicks = {}
+        G.AdvancedUnlocked = not G.AdvancedUnlocked
+        AdvancedFrame.Visible = G.AdvancedUnlocked
+        showPage("Settings")
+        SetStatus(G.AdvancedUnlocked and "Advanced settings unlocked." or "Advanced settings hidden.")
+        return
+    end
+
+    if activePage == "Settings" then
+        showPage(lastMainPage)
+    else
+        showPage("Settings")
+    end
+end))
+
+-- ==========================================================
+-- Hotkeys (menu key and fly key are rebindable in settings)
+-- ==========================================================
+
+track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then
+        return
+    end
+
+    -- A keybind button is waiting for the next key press
+    if captureHandler then
+        local handler = captureHandler
+        captureHandler = nil
+        handler(input.KeyCode)
+        return
+    end
+
+    if gameProcessed or UserInputService:GetFocusedTextBox() then
+        return
+    end
+
+    if input.KeyCode == keyFromName(G.MenuHotkey) then
+        MainFrame.Visible = not MainFrame.Visible
+    elseif input.KeyCode == keyFromName(G.FlyHotkey) then
+        G.FlyEnabled = not G.FlyEnabled
+        if togglers.FlyEnabled then
+            togglers.FlyEnabled()
+        end
+        toggleFly(G.FlyEnabled)
+    end
+end))
 
 -- Should set the player atutribe to true so i never die
 
@@ -1439,123 +2176,9 @@ end
 --   end
 -- end)
 
-
--- Typing a value turns the matching feature on so it takes effect
-local function enable(key)
-    G[key] = true
-    if togglers[key] then
-        togglers[key]()
-    end
-end
-
-
-
--- Movement
-CreateSection("MOVEMENT")
-
-CreateButton("↺  Reset GUI size", function()
-    expandedSize = defaultFrameSize
-    minimized = false
-    Container.Visible = true
-    ResizeHandle.Visible = true
-    MainFrame.Size = defaultFrameSize
-    MinimizeButton.Text = "−"
-end, UI_COLORS.Accent)
-
-CreateToggle("Unlimited Zoom", "UnlimitedZoomEnabled", nil)
-
-CreateToggle("Speed", "SpeedEnabled", nil)
-CreateTextBox("WalkSpeed (default 100)", function(val)
-    G.WalkSpeedValue = math.clamp(val, 0)
-    enable("SpeedEnabled")
-end)
-
-CreateToggle("Jump Power", "JumpEnabled", nil)
-CreateTextBox("Jump Power (default 100)", function(val)
-    G.JumpHeightValue = math.clamp(val, 0)
-    enable("JumpEnabled")
-end)
-
-CreateToggle("Infinite Jump", "InfiniteJumpEnabled", nil)
-CreateToggle("Noclip", "NoClipEnabled", nil)
-
-CreateToggle("Shift Lock", "ShiftLockEnabled", nil)
-CreateHint("Hold Left Alt to free the cursor and use the menu.", 26)
-
-CreateToggle("Fly", "FlyEnabled", toggleFly)
-CreateTextBox("Fly speed (default 75)", function(val)
-    G.FlySpeedValue = math.clamp(val, 0)
-end)
-CreateHint("Fly: WASD move, Space/E up, Ctrl/Q down, Shift boost, F toggles fly.", 40)
-
-CreateToggle("Invisibility", "InvisibleEnabled", nil)                                     --invisible button shit toggle make code
-CreateToggle("Avatar Morph", "MorphEnabled", toggleMorph)
-CreateHint("Morph uses the asset IDs in the MORPH table near the top of the script.", 40)
-
--- Aimbot
-CreateSection("AIMBOT")
-
-CreateToggle("Target Lock", "AimbotEnabled", nil)
-CreateToggle("Skip Teammates", "AimbotTeamCheck", nil)
-CreateTextBox("Aim strength (default 5; 0 = off, 100 = snap)", function(val)
-    G.AimbotStrength = math.clamp(val, 0, 100)
-end)
-
--- ESP
-CreateSection("ESP")
-
-CreateToggle("Highlight ESP", "HighlightESPEnabled", RefreshESP)
-CreateToggle("Skeleton ESP", "BoneESPEnabled", RefreshESP)
-CreateToggle("Nametag ESP", "NametagESPEnabled", RefreshESP)
-CreateToggle("Armor ESP", "ArmorESPEnabled", RefreshESP)
-
-
--- Server stats
-CreateTextBox("Damage multiplier (client-only visual)", function(val)
-    G.LocalDamageMult = val  -- stores in your global table
-    
-    -- Sets attribute locally (only works if YOUR game code reads this attribute on the client)
-    local character = LocalPlayer.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid:SetAttribute("ClientDamageMultiplier", val)
-        end
-    end
-    SetStatus("Local damage mult set to: " .. val .. " (visual only)")
-end)
-
-CreateTextBox("Attack speed (default 1)", function(val)
-    -- keep your existing attack speed code here
-end)
-
-
-StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, 0, 0, 36)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = ""
-StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextSize = 11
-StatusLabel.TextWrapped = true
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.LayoutOrder = nextOrder()
-StatusLabel.Parent = Container
-
--- F toggles fly (ignored while typing in a box or the chat)
-track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed or UserInputService:GetFocusedTextBox() then
-        return
-    end
-
-    if input.KeyCode == Enum.KeyCode.F then
-        G.FlyEnabled = not G.FlyEnabled
-        if togglers.FlyEnabled then
-            togglers.FlyEnabled()
-        end
-        toggleFly(G.FlyEnabled)
-    end
-end))
+-- Start on the Move tab with the saved theme and opacity applied
+applyOpacity()
+showPage("Move")
 
 -- ==========================================================
 -- Cleanup (called automatically if you run the script again)
