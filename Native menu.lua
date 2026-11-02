@@ -1,5 +1,5 @@
 -- ==========================================================
--- Version number - 0.2.4
+-- Version number - 0.2.5a
 -- Native Menu (fixed) - client-side script for your OWN game
 -- Pair it with DevStats.server.lua (ServerScriptService) for the
 -- Damage Multiplier and Attack Speed boxes. Those two values must
@@ -1078,6 +1078,18 @@ end)
 -- GUI
 -- ==========================================================
 
+local UI_COLORS = {
+    Background = Color3.fromRGB(18, 24, 36),
+    Header = Color3.fromRGB(28, 38, 55),
+    Surface = Color3.fromRGB(34, 45, 64),
+    Accent = Color3.fromRGB(68, 105, 190),
+    Border = Color3.fromRGB(59, 76, 102),
+    Text = Color3.fromRGB(235, 240, 248),
+    MutedText = Color3.fromRGB(153, 167, 188),
+    Enabled = Color3.fromRGB(94, 220, 174),
+    Disabled = Color3.fromRGB(235, 128, 137),
+}
+
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "SolaraNativeMenu"
 ScreenGui.ResetOnSpawn = false
@@ -1089,28 +1101,36 @@ MainFrame.Name = "MainFrame"
 local defaultFrameSize = UDim2.fromOffset(260, 420)
 MainFrame.Size = defaultFrameSize
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+MainFrame.BackgroundColor3 = UI_COLORS.Background
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = MainFrame
+
+local FrameStroke = Instance.new("UIStroke")
+FrameStroke.Color = UI_COLORS.Border
+FrameStroke.Transparency = 0.25
+FrameStroke.Thickness = 1
+FrameStroke.Parent = MainFrame
 
 local Title = Instance.new("TextLabel")
 Title.Name = "Title"
-Title.Size = UDim2.new(1, 0, 0, 40)
-Title.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-Title.Text = "Native Menu (Dev)"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Position = UDim2.new(0, 12, 0, 0)
+Title.Size = UDim2.new(1, -24, 0, 40)
+Title.BackgroundColor3 = UI_COLORS.Header
+Title.Text = "Native Menu  |  v0.2.5"
+Title.TextColor3 = UI_COLORS.Text
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 13
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Active = true
 Title.Parent = MainFrame
 
 local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.CornerRadius = UDim.new(0, 10)
 TitleCorner.Parent = Title
 
 local Container = Instance.new("ScrollingFrame")
@@ -1145,28 +1165,28 @@ local function makeTitleButton(text, xOffset, color)
     button.Position = UDim2.new(1, xOffset, 0, 6)
     button.BackgroundColor3 = color
     button.Text = text
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextColor3 = UI_COLORS.Text
     button.Font = Enum.Font.GothamBold
-    button.TextSize = 14
+    button.TextSize = 15
     button.Parent = MainFrame
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
+    corner.CornerRadius = UDim.new(0, 7)
     corner.Parent = button
 
     return button
 end
 
-local CloseButton = makeTitleButton("X", -34, Color3.fromRGB(190, 60, 60))
-local MinimizeButton = makeTitleButton("-", -66, Color3.fromRGB(60, 60, 75))
+local CloseButton = makeTitleButton("×", -34, Color3.fromRGB(155, 65, 78))
+local MinimizeButton = makeTitleButton("−", -66, UI_COLORS.Surface)
 
 local ResizeHandle = Instance.new("TextButton")
 ResizeHandle.Name = "ResizeHandle"
 ResizeHandle.Size = UDim2.new(0, 20, 0, 20)
 ResizeHandle.Position = UDim2.new(1, -22, 1, -22)
-ResizeHandle.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+ResizeHandle.BackgroundColor3 = UI_COLORS.Surface
 ResizeHandle.Text = "↘"
-ResizeHandle.TextColor3 = Color3.fromRGB(255, 255, 255)
+ResizeHandle.TextColor3 = UI_COLORS.Text
 ResizeHandle.Font = Enum.Font.GothamBold
 ResizeHandle.TextSize = 14
 ResizeHandle.ZIndex = 10
@@ -1270,7 +1290,7 @@ track(MinimizeButton.MouseButton1Click:Connect(function()
     MainFrame.Size = minimized
         and UDim2.fromOffset(expandedSize.X.Offset, 40)
         or expandedSize
-    MinimizeButton.Text = minimized and "+" or "-"
+    MinimizeButton.Text = minimized and "+" or "−"
 end))
 
 -- Close removes the menu and undoes everything (fly, noclip, speed, ESP...)
@@ -1300,15 +1320,12 @@ SetStatus = function(text)
     end
 end
 
-local ON_COLOR = Color3.fromRGB(80, 230, 80)
-local OFF_COLOR = Color3.fromRGB(230, 80, 80)
-
 local function CreateSection(text)
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, 0, 0, 20)
     label.BackgroundTransparency = 1
     label.Text = text
-    label.TextColor3 = Color3.fromRGB(150, 150, 160)
+    label.TextColor3 = UI_COLORS.MutedText
     label.Font = Enum.Font.GothamBold
     label.TextSize = 11
     label.TextXAlignment = Enum.TextXAlignment.Left
@@ -1321,7 +1338,7 @@ local function CreateHint(text, height)
     label.Size = UDim2.new(1, 0, 0, height or 30)
     label.BackgroundTransparency = 1
     label.Text = text
-    label.TextColor3 = Color3.fromRGB(120, 120, 135)
+    label.TextColor3 = UI_COLORS.MutedText
     label.Font = Enum.Font.Gotham
     label.TextSize = 10
     label.TextWrapped = true
@@ -1334,23 +1351,23 @@ end
 local function CreateToggle(text, key, callback)
     local button = Instance.new("TextButton")
     button.Size = UDim2.new(1, 0, 0, 35)
-    button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    button.BackgroundColor3 = UI_COLORS.Surface
     button.Font = Enum.Font.Gotham
-    button.TextSize = 12
+    button.TextSize = 13
     button.LayoutOrder = nextOrder()
     button.Parent = Container
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
+    corner.CornerRadius = UDim.new(0, 7)
     corner.Parent = button
 
     local function render()
         if G[key] then
             button.Text = text .. ": ON"
-            button.TextColor3 = ON_COLOR
+            button.TextColor3 = UI_COLORS.Enabled
         else
             button.Text = text .. ": OFF"
-            button.TextColor3 = OFF_COLOR
+            button.TextColor3 = UI_COLORS.Disabled
         end
     end
 
@@ -1367,19 +1384,19 @@ local function CreateToggle(text, key, callback)
     end))
 end
 
-local function CreateButton(text, callback)
+local function CreateButton(text, callback, backgroundColor)
     local button = Instance.new("TextButton")
     button.Size = UDim2.new(1, 0, 0, 35)
-    button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    button.BackgroundColor3 = backgroundColor or UI_COLORS.Surface
     button.Text = text
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextColor3 = UI_COLORS.Text
     button.Font = Enum.Font.Gotham
-    button.TextSize = 12
+    button.TextSize = 13
     button.LayoutOrder = nextOrder()
     button.Parent = Container
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
+    corner.CornerRadius = UDim.new(0, 7)
     corner.Parent = button
 
     track(button.MouseButton1Click:Connect(callback))
@@ -1388,18 +1405,18 @@ end
 local function CreateTextBox(placeholder, callback)
     local box = Instance.new("TextBox")
     box.Size = UDim2.new(1, 0, 0, 35)
-    box.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    box.BackgroundColor3 = UI_COLORS.Surface
     box.PlaceholderText = placeholder
     box.Text = ""
-    box.TextColor3 = Color3.fromRGB(255, 255, 255)
-    box.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+    box.TextColor3 = UI_COLORS.Text
+    box.PlaceholderColor3 = UI_COLORS.MutedText
     box.Font = Enum.Font.Gotham
-    box.TextSize = 12
+    box.TextSize = 13
     box.LayoutOrder = nextOrder()
     box.Parent = Container
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
+    corner.CornerRadius = UDim.new(0, 7)
     corner.Parent = box
 
     track(box.FocusLost:Connect(function()
@@ -1436,14 +1453,14 @@ end
 -- Movement
 CreateSection("MOVEMENT")
 
-CreateButton("Reset GUI Size", function()
+CreateButton("↺  Reset GUI size", function()
     expandedSize = defaultFrameSize
     minimized = false
     Container.Visible = true
     ResizeHandle.Visible = true
     MainFrame.Size = defaultFrameSize
-    MinimizeButton.Text = "-"
-end)
+    MinimizeButton.Text = "−"
+end, UI_COLORS.Accent)
 
 CreateToggle("Unlimited Zoom", "UnlimitedZoomEnabled", nil)
 
