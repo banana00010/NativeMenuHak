@@ -1085,7 +1085,8 @@ ScreenGui.Parent = (gethui and gethui()) or LocalPlayer:WaitForChild("PlayerGui"
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 260, 0, 420)
+local defaultFrameSize = UDim2.fromOffset(260, 420)
+MainFrame.Size = defaultFrameSize
 MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 MainFrame.BorderSizePixel = 0
@@ -1365,6 +1366,24 @@ local function CreateToggle(text, key, callback)
     end))
 end
 
+local function CreateButton(text, callback)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, 0, 0, 35)
+    button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.Gotham
+    button.TextSize = 12
+    button.LayoutOrder = nextOrder()
+    button.Parent = Container
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = button
+
+    track(button.MouseButton1Click:Connect(callback))
+end
+
 local function CreateTextBox(placeholder, callback)
     local box = Instance.new("TextBox")
     box.Size = UDim2.new(1, 0, 0, 35)
@@ -1415,6 +1434,15 @@ end
 
 -- Movement
 CreateSection("MOVEMENT")
+
+CreateButton("Reset GUI Size", function()
+    expandedSize = defaultFrameSize
+    minimized = false
+    Container.Visible = true
+    ResizeHandle.Visible = true
+    MainFrame.Size = defaultFrameSize
+    MinimizeButton.Text = "-"
+end)
 
 CreateToggle("Unlimited Zoom", "UnlimitedZoomEnabled", nil)
 
