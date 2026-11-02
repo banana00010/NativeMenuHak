@@ -47,7 +47,7 @@ default("NametagESPEnabled", false)
 default("ArmorESPEnabled", false)
 default("InvisibleEnabled", false)
 default("MorphEnabled", false)
-default("UnlimitedZoomEnabled", false)
+default("UnlimitedZoomEnabled", true)
 G.FlyEnabled = false
 local connections = {}
 local togglers = {}
