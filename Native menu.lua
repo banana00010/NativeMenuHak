@@ -1,5 +1,5 @@
 -- ==========================================================
--- Version number - 0.2.7
+-- Version number - 0.2.9
 -- Native Menu (fixed) - client-side script for your OWN game
 -- ==========================================================
 
@@ -1288,7 +1288,7 @@ themeBind(LogoButton, "BackgroundColor3", "Accent")
 addCorner(LogoButton, 7)
 
 local LogoPadding = Instance.new("UIPadding")
-LogoPadding.PaddingRight = UDim.new(0, 4)
+LogoPadding.PaddingRight = UDim.new(0, 2)
 LogoPadding.Parent = LogoButton
 
 local LogoStroke = Instance.new("UIStroke")
