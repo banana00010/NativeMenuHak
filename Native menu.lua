@@ -1,4 +1,5 @@
 -- ==========================================================
+-- Version number - 0.2.4
 -- Native Menu (fixed) - client-side script for your OWN game
 -- Pair it with DevStats.server.lua (ServerScriptService) for the
 -- Damage Multiplier and Attack Speed boxes. Those two values must
