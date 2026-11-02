@@ -78,9 +78,12 @@ end
 -- Movement: speed / jump / noclip (all restore when turned off)
 -- ==========================================================
 
+-- ==========================================================
+-- Movement: speed / jump / noclip / WASD instant start & stop
+-- ==========================================================
+
 local savedHumanoid = setmetatable({}, { __mode = "k" })
 local savedCollide = setmetatable({}, { __mode = "k" })
-local speedWasMoving = false
 
 local function restoreHumanoid(humanoid, saved)
     if saved.walk ~= nil then
@@ -110,6 +113,7 @@ track(RunService.Stepped:Connect(function()
     end
 
     local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
 
     if humanoid then
         local saved = savedHumanoid[humanoid]
@@ -123,6 +127,27 @@ track(RunService.Stepped:Connect(function()
                 saved.walk = humanoid.WalkSpeed
             end
             humanoid.WalkSpeed = G.WalkSpeedValue
+
+            -- Instant start and stop logic for all movement keys (W, A, S, D)
+            if hrp and not UserInputService:GetFocusedTextBox() then
+                local cam = workspace.CurrentCamera
+                if cam then
+                    local moveDir = Vector3.new(0, 0, 0)
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
+
+                    local flatDir = Vector3.new(moveDir.X, 0, moveDir.Z)
+                    if flatDir.Magnitude > 0 then
+                        flatDir = flatDir.Unit * G.WalkSpeedValue
+                        hrp.AssemblyLinearVelocity = Vector3.new(flatDir.X, hrp.AssemblyLinearVelocity.Y, flatDir.Z)
+                    else
+                        -- Instant stop: zero out horizontal velocity when no movement keys are pressed
+                        hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0)
+                    end
+                end
+            end
         elseif saved.walk ~= nil then
             humanoid.WalkSpeed = saved.walk
             saved.walk = nil
@@ -154,26 +179,6 @@ track(RunService.Stepped:Connect(function()
     elseif next(savedCollide) ~= nil then
         restoreCollisions()
     end
-end))
-
-track(RunService.Heartbeat:Connect(function()
-    local character = LocalPlayer.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    if not G.SpeedEnabled or not humanoid or humanoid.Health <= 0 then
-        speedWasMoving = false
-        return
-    end
-
-    local isMoving = humanoid.MoveDirection.Magnitude > 0.01
-    if speedWasMoving and not isMoving then
-        local root = character:FindFirstChild("HumanoidRootPart")
-        if root then
-            local velocity = root.AssemblyLinearVelocity
-            root.AssemblyLinearVelocity = Vector3.new(0, velocity.Y, 0)
-        end
-    end
-
-    speedWasMoving = isMoving
 end))
 
 track(UserInputService.JumpRequest:Connect(function()
