@@ -1,5 +1,5 @@
 -- ==========================================================
--- Version number - 0.2.9
+-- Version number - 0.3.0
 -- Native Menu (fixed) - client-side script for your OWN game
 -- ==========================================================
 
@@ -54,12 +54,14 @@ default("ThemeName", "Graphite")
 default("MenuOpacity", 0.8)
 default("MenuHotkey", "RightShift")
 default("FlyHotkey", "F")
+default("ServerHopPreferFriends", false)
 default("ToastsEnabled", true)
+
 
 -- Advanced settings (unlocked from the settings page)
 default("AdvancedUnlocked", false)
 default("InstantMoveEnabled", true)
-default("FlyBoost", 2)
+default("FlyBoost", 3)
 default("FlySmoothing", 10)
 default("AimPart", "Head")
 default("AimFOV", 0)
@@ -760,6 +762,7 @@ ESPFolder.Parent = workspace
 
 local ESPData = {}
 local playerConns = {}
+local highlightWarned = false
 
 local R15_BONES = {
     { "Head", "UpperTorso" },
@@ -997,6 +1000,15 @@ local function CreatePlayerESP(player)
         highlight.OutlineTransparency = 0
         highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         highlight.Parent = container
+
+        local active = 0
+        for _ in pairs(ESPData) do
+            active = active + 1
+        end
+        if active > 31 and not highlightWarned and SetStatus then
+            highlightWarned = true
+            SetStatus("Roblox only draws about 31 highlights at once; extra players may have no outline.", "warn")
+        end
     end
 
     CreateSkeleton(player, character, data)
@@ -1105,6 +1117,176 @@ espWatchdogThread = task.spawn(function()
         end
     end
 end)
+
+-- ==========================================================
+-- Server hop
+-- Joins a random public server of this game (never the current one).
+-- With "Prefer friends' servers" on, it joins a friend's server first.
+-- ==========================================================
+
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+
+local SERVER_HOP_MAX_PAGES = 5 -- 100 servers per page, only used when preferring friends
+local serverHopBusy = false
+
+local function fetchServerPage(cursor)
+    local url = "https://games.roblox.com/v1/games/" .. game.PlaceId
+        .. "/servers/Public?sortOrder=Desc&limit=100&excludeFullGames=true"
+
+    if cursor then
+        url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+    end
+
+    local okRequest, response = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if not okRequest then
+         if tostring(response):find("429") then
+            return nil, "Roblox rate limit hit - wait a minute and try again"
+        end
+        return nil, "request failed (" .. tostring(response) .. ")"
+    end
+
+    local okDecode, body = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if not okDecode or type(body) ~= "table" then
+        return nil, "unreadable response (rate limited?)"
+    end
+
+    return body
+end
+
+-- Friends who are in a DIFFERENT server of this same game: jobId -> name
+local function getFriendServers()
+    local result = {}
+    local count = 0
+
+    local ok, friends = pcall(function()
+        return LocalPlayer:GetFriendsOnline(200)
+    end)
+    if not ok or type(friends) ~= "table" then
+        return result, count, false
+    end
+
+    for _, friend in ipairs(friends) do
+        if friend.PlaceId == game.PlaceId
+            and type(friend.GameId) == "string"
+            and friend.GameId ~= ""
+            and friend.GameId ~= game.JobId then
+            result[friend.GameId] = friend.DisplayName or friend.UserName or "a friend"
+            count = count + 1
+        end
+    end
+
+    return result, count, true
+end
+
+local function serverHop()
+    if serverHopBusy then
+        SetStatus("Server hop is already running...")
+        return
+    end
+    serverHopBusy = true
+
+    task.spawn(function() -- HttpGet yields, so keep it off the UI thread
+        local preferFriends = G.ServerHopPreferFriends
+        local friendServers, friendCount, friendsOk = {}, 0, true
+        if preferFriends then
+            friendServers, friendCount, friendsOk = getFriendServers()
+        end
+        local hitPageCap = false
+        local pagesToCheck = preferFriends and SERVER_HOP_MAX_PAGES or 1
+
+        local candidates = {}
+        local friendTarget, friendName
+        local cursor
+
+        for page = 1, pagesToCheck do
+            local body, err = fetchServerPage(cursor)
+            if not body then
+                SetStatus("Server hop: " .. err, "warn")
+                break
+            end
+
+            if type(body.data) == "table" then
+                for _, server in ipairs(body.data) do
+                    if type(server) == "table"
+                        and type(server.id) == "string"
+                        and tonumber(server.playing)
+                        and tonumber(server.maxPlayers)
+                        and server.playing < server.maxPlayers
+                        and server.id ~= game.JobId then
+                        candidates[#candidates + 1] = server.id
+
+                        if friendServers[server.id] and not friendTarget then
+                            friendTarget = server.id
+                            friendName = friendServers[server.id]
+                        end
+                    end
+                end
+            end
+
+            cursor = body.nextPageCursor
+            if friendTarget or type(cursor) ~= "string" then
+                break
+            end
+
+            if page == pagesToCheck then
+                hitPageCap = true
+            end
+
+            task.wait(0.4) -- stay under Roblox's rate limit
+        end
+
+        if not runActive then
+            serverHopBusy = false
+            return
+        end
+
+        local target = friendTarget
+        if target then
+            SetStatus("Joining " .. friendName .. "'s server...")
+        elseif #candidates > 0 then
+            target = candidates[math.random(1, #candidates)]
+            if preferFriends then
+                local reason
+                if not friendsOk then
+                    reason = "Couldn't read your friends list"
+                elseif friendCount == 0 then
+                    reason = "No friends are in another server of this game"
+                elseif hitPageCap then
+                    reason = "Your friends' servers weren't in the first "
+                        .. (SERVER_HOP_MAX_PAGES * 100) .. " servers"
+                else
+                    reason = "Your friends' servers are full or private"
+                end
+                SetStatus(reason .. ". Joining a random one...", "warn")
+            else
+                SetStatus("Joining a random server...")
+            end
+        end
+
+        local ok, err = pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, target, LocalPlayer)
+        end)
+        if not ok then
+            SetStatus("Teleport failed: " .. tostring(err), "warn")
+        end
+
+        task.delay(8, function()
+            serverHopBusy = false
+        end)
+    end)
+end
+
+track(TeleportService.TeleportInitFailed:Connect(function(player, _, message)
+    if player == LocalPlayer then
+        SetStatus("Teleport failed: " .. tostring(message), "warn")
+        serverHopBusy = false
+    end
+end))
 
 -- ==========================================================
 -- GUI
@@ -1265,7 +1447,7 @@ Title.Name = "Title"
 Title.Position = UDim2.new(0, 44, 0, 0)
 Title.Size = UDim2.new(1, -144, 0, 40)
 Title.BackgroundTransparency = 1
-Title.Text = "NATIVE  v0.2.7"
+Title.Text = "NATIVE  v0.3.0"
 Title.TextColor3 = UI_COLORS.Text
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
@@ -1497,7 +1679,7 @@ track(CloseButton.MouseButton1Click:Connect(function()
 end))
 
 local statusToastId = 0
-SetStatus = function(text)
+SetStatus = function(text, kind)
     if G.ToastsEnabled == false then
         return
     end
@@ -1505,6 +1687,7 @@ SetStatus = function(text)
     statusToastId = statusToastId + 1
     local currentToastId = statusToastId
     StatusToast.Text = text
+    StatusToast.TextColor3 = kind == "warn" and Color3.fromRGB(255, 200, 90) or UI_COLORS.Text
     StatusToast.Visible = true
     task.delay(3, function()
         if currentToastId == statusToastId and StatusToast.Parent then
@@ -1693,6 +1876,19 @@ local function enable(key)
     end
 end
 
+-- Clamps a typed value and tells the user when a limit changed it
+local function clampWithNotice(value, minV, maxV, label)
+    local clamped = math.clamp(value, minV, maxV)
+
+    if clamped ~= value then
+        local which = value > maxV and "max" or "min"
+        SetStatus(label .. ": " .. which .. " is " .. tostring(clamped)
+            .. " (you typed " .. tostring(value) .. ")", "warn")
+    end
+
+    return clamped
+end
+
 local function CreateSection(text)
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, 0, 0, 20)
@@ -1813,10 +2009,12 @@ local function CreateValueRow(text, valueKey, minV, maxV, callback)
     track(box.FocusLost:Connect(function()
         local num = tonumber(box.Text)
         if num and num == num then
-            G[valueKey] = math.clamp(num, minV, maxV)
+            G[valueKey] = clampWithNotice(num, minV, maxV, text)
             if callback then
                 callback(G[valueKey])
             end
+        elseif box.Text ~= "" then
+            SetStatus(text .. ": enter a number", "warn")
         end
         refreshBox()
     end))
@@ -2021,6 +2219,9 @@ CreateSection("CAMERA")
 CreateToggle("Unlimited Zoom", "UnlimitedZoomEnabled")
 CreateToggle("Shift Lock", "ShiftLockEnabled")
 CreateHint("Hold Left Alt to free the cursor and use the menu.", 26)
+CreateSection("SERVER")
+CreateToggle("Prefer friends' servers", "ServerHopPreferFriends")
+CreateButton("Server hop", serverHop)
 
 -- ==========================================================
 -- COMBAT tab
@@ -2204,7 +2405,6 @@ G.NativeMenuCleanup = function()
         revertMorph(humanoid)
     end
     G.MorphEnabled = false
-    -- dick fart
     
     for _, connection in ipairs(connections) do
         pcall(function()
