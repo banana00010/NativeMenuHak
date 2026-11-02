@@ -414,7 +414,7 @@ track(RunService.RenderStepped:Connect(function()
             }
         end
         LocalPlayer.CameraMaxZoomDistance = 100000
-        LocalPlayer.CameraMinZoomDistance = 0
+        LocalPlayer.CameraMinZoomDistance = -100000
         LocalPlayer.CameraMode = Enum.CameraMode.Classic
     else
         restoreZoom()
