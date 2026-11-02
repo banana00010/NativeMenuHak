@@ -1051,7 +1051,6 @@ MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
-MainFrame.Draggable = true
 MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
@@ -1066,6 +1065,7 @@ Title.Text = "Native Menu (Dev)"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 13
+Title.Active = true
 Title.Parent = MainFrame
 
 local TitleCorner = Instance.new("UICorner")
@@ -1083,6 +1083,20 @@ Container.ScrollBarThickness = 4
 Container.Parent = MainFrame
 
 local expandedSize = MainFrame.Size
+local dragInput
+local dragStartPosition
+local dragStartFramePosition
+local dragStartGuiPosition
+
+track(Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+        dragStartPosition = Vector2.new(input.Position.X, input.Position.Y)
+        dragStartFramePosition = MainFrame.AbsolutePosition
+        dragStartGuiPosition = MainFrame.Position
+    end
+end))
 
 local function makeTitleButton(text, xOffset, color)
     local button = Instance.new("TextButton")
@@ -1114,6 +1128,7 @@ ResizeHandle.Text = "↘"
 ResizeHandle.TextColor3 = Color3.fromRGB(255, 255, 255)
 ResizeHandle.Font = Enum.Font.GothamBold
 ResizeHandle.TextSize = 14
+ResizeHandle.ZIndex = 10
 ResizeHandle.Parent = MainFrame
 
 local resizeInput
@@ -1130,6 +1145,34 @@ track(ResizeHandle.InputBegan:Connect(function(input)
 end))
 
 track(UserInputService.InputChanged:Connect(function(input)
+    if dragInput then
+        local isMouseDrag = dragInput.UserInputType == Enum.UserInputType.MouseButton1
+            and input.UserInputType == Enum.UserInputType.MouseMovement
+        local isTouchDrag = dragInput.UserInputType == Enum.UserInputType.Touch
+            and input == dragInput
+
+        if isMouseDrag or isTouchDrag then
+            local pointer = Vector2.new(input.Position.X, input.Position.Y)
+            local delta = pointer - dragStartPosition
+            local desiredPosition = dragStartFramePosition + delta
+            local position = desiredPosition
+            local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+            if viewport then
+                position = Vector2.new(
+                    math.clamp(position.X, 0, math.max(0, viewport.X - MainFrame.AbsoluteSize.X)),
+                    math.clamp(position.Y, 0, math.max(0, viewport.Y - MainFrame.AbsoluteSize.Y))
+                )
+            end
+            local correction = position - desiredPosition
+            MainFrame.Position = UDim2.new(
+                dragStartGuiPosition.X.Scale,
+                dragStartGuiPosition.X.Offset + delta.X + correction.X,
+                dragStartGuiPosition.Y.Scale,
+                dragStartGuiPosition.Y.Offset + delta.Y + correction.Y
+            )
+        end
+    end
+
     if not resizeInput then
         return
     end
@@ -1137,7 +1180,7 @@ track(UserInputService.InputChanged:Connect(function(input)
     local isMouseMove = resizeInput.UserInputType == Enum.UserInputType.MouseButton1
         and input.UserInputType == Enum.UserInputType.MouseMovement
     local isTouchMove = resizeInput.UserInputType == Enum.UserInputType.Touch
-        and input.UserInputType == Enum.UserInputType.Touch
+        and input == resizeInput
     if not (isMouseMove or isTouchMove) then
         return
     end
@@ -1155,6 +1198,17 @@ track(UserInputService.InputChanged:Connect(function(input)
 end))
 
 track(UserInputService.InputEnded:Connect(function(input)
+    if dragInput and (
+        input == dragInput
+        or (dragInput.UserInputType == Enum.UserInputType.MouseButton1
+            and input.UserInputType == Enum.UserInputType.MouseButton1)
+    ) then
+        dragInput = nil
+        dragStartPosition = nil
+        dragStartFramePosition = nil
+        dragStartGuiPosition = nil
+    end
+
     if resizeInput and (
         (resizeInput.UserInputType == Enum.UserInputType.MouseButton1
             and input.UserInputType == Enum.UserInputType.MouseButton1)
