@@ -1288,7 +1288,7 @@ themeBind(LogoButton, "BackgroundColor3", "Accent")
 addCorner(LogoButton, 7)
 
 local LogoPadding = Instance.new("UIPadding")
-LogoPadding.PaddingLeft = UDim.new(0, 4)
+LogoPadding.PaddingRight = UDim.new(0, 4)
 LogoPadding.Parent = LogoButton
 
 local LogoStroke = Instance.new("UIStroke")
