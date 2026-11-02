@@ -45,8 +45,9 @@ default("HighlightESPEnabled", true)
 default("BoneESPEnabled", false)
 default("NametagESPEnabled", false)
 default("ArmorESPEnabled", false)
+default("InvisibleEnabled", false)
 G.FlyEnabled = false
-
+G. MorphEnabled = false
 local connections = {}
 local togglers = {}
 
@@ -164,6 +165,157 @@ track(UserInputService.JumpRequest:Connect(function()
 
     if humanoid then
         humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end))
+
+-- ==========================================================
+-- Invisibility
+-- Hides every part, decal and accessory on your character and
+-- the overhead name/health bar. Everything is restored when off.
+-- Note: this is a client-side change, so other players only see
+-- it if your game replicates it (e.g. via a server script).
+-- ==========================================================
+
+local invisSaved = setmetatable({}, { __mode = "k" })
+local invisHumanoidSaved = setmetatable({}, { __mode = "k" })
+
+local function restoreVisibility()
+    for object, original in pairs(invisSaved) do
+        if object.Parent then
+            object.Transparency = original
+        end
+        invisSaved[object] = nil
+    end
+
+    for humanoid, displayType in pairs(invisHumanoidSaved) do
+        if humanoid.Parent then
+            humanoid.DisplayDistanceType = displayType
+        end
+        invisHumanoidSaved[humanoid] = nil
+    end
+end
+
+track(RunService.RenderStepped:Connect(function()
+    if not G.InvisibleEnabled then
+        if next(invisSaved) ~= nil or next(invisHumanoidSaved) ~= nil then
+            restoreVisibility()
+        end
+        return
+    end
+
+    local character = LocalPlayer.Character
+    if not character then
+        return
+    end
+
+    -- Runs every frame so accessories/tools added later are hidden too
+    for _, object in ipairs(character:GetDescendants()) do
+        if object:IsA("BasePart") or object:IsA("Decal") then
+            if invisSaved[object] == nil then
+                invisSaved[object] = object.Transparency
+            end
+            object.Transparency = 1
+        end
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        if invisHumanoidSaved[humanoid] == nil then
+            invisHumanoidSaved[humanoid] = humanoid.DisplayDistanceType
+        end
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    end
+end))
+
+-- ==========================================================
+-- Avatar morph
+-- Fill in the catalog asset IDs below (as strings). Leave a field
+-- as "" to skip it. IDs come from the number in a catalog item's URL.
+-- Accessory fields accept several IDs separated by commas.
+-- Turning the toggle off restores your original look.
+-- ==========================================================
+
+local MORPH = {
+    HairAccessory = "87924232591985",    -- e.g. "1234567,7654321"
+    FaceAccessory = "126266405484254",
+    NeckAccessory = "16988901927",
+    ShouldersAccessory = "120579423084182",
+    FrontAccessory = "18133081957",
+    BackAccessory = "86231320427423",
+    WaistAccessory = "74916992913611",
+    Shirt = "123781839092808",
+    Pants = "115841525903241",
+    GraphicTShirt = "",
+    Face = "57888977922523",
+}
+
+local morphOriginal -- the description to restore
+
+local function applyMorph(humanoid)
+    local ok, current = pcall(function()
+        return humanoid:GetAppliedDescription()
+    end)
+    if not ok or not current then
+        return false
+    end
+
+    if not morphOriginal then
+        morphOriginal = current:Clone()
+    end
+
+    local description = current:Clone()
+    for field, value in pairs(MORPH) do
+        if value ~= "" then
+            local numeric = tonumber(value)
+            if numeric then
+                description[field] = numeric
+            else
+                description[field] = value
+            end
+        end
+    end
+
+    return pcall(function()
+        humanoid:ApplyDescription(description)
+    end)
+end
+
+local function revertMorph(humanoid)
+    if morphOriginal then
+        local original = morphOriginal
+        morphOriginal = nil
+        pcall(function()
+            humanoid:ApplyDescription(original)
+        end)
+    end
+end
+
+local function toggleMorph(state)
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then
+        return
+    end
+
+    task.spawn(function() -- ApplyDescription yields
+        if state then
+            applyMorph(humanoid)
+        else
+            revertMorph(humanoid)
+        end
+    end)
+end
+
+track(LocalPlayer.CharacterAdded:Connect(function(character)
+    -- A new character starts from the default look, so forget the old snapshot
+    morphOriginal = nil
+
+    if G.MorphEnabled then
+        local humanoid = character:WaitForChild("Humanoid", 5)
+        if humanoid and G.MorphEnabled then
+            task.wait(0.5)
+            applyMorph(humanoid)
+        end
     end
 end))
 
@@ -1066,6 +1218,10 @@ CreateTextBox("Fly speed (default 50)", function(val)
 end)
 CreateHint("Fly: WASD move, Space/E up, Ctrl/Q down, Shift boost, F toggles fly.", 40)
 
+CreateToggle("Invisibility", "InvisibleEnabled", nil)                                     --invisible button shit toggle make code
+CreateToggle("Avatar Morph", "MorphEnabled", toggleMorph)
+CreateHint("Morph uses the asset IDs in the MORPH table near the top of the script.", 40)
+
 -- Aimbot
 CreateSection("AIMBOT")
 
@@ -1147,6 +1303,15 @@ G.NativeMenuCleanup = function()
     G.FlyEnabled = false
     stopFly()
 
+-- Undo the avatar morph before connections are dropped
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid and morphOriginal then
+        revertMorph(humanoid)
+    end
+    G.MorphEnabled = false
+    -- dick fart
+    
     for _, connection in ipairs(connections) do
         pcall(function()
             connection:Disconnect()
@@ -1167,6 +1332,7 @@ G.NativeMenuCleanup = function()
         end
     end
     restoreCollisions()
+    restoreVisibility()
     releaseShiftLock()
 
     ESPFolder:Destroy()
