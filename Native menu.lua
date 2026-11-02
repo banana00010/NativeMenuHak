@@ -46,8 +46,8 @@ default("BoneESPEnabled", false)
 default("NametagESPEnabled", false)
 default("ArmorESPEnabled", false)
 default("InvisibleEnabled", false)
+default("MorphEnabled", false)
 G.FlyEnabled = false
-G.MorphEnabled = false
 local connections = {}
 local togglers = {}
 
@@ -255,8 +255,11 @@ local function applyMorph(humanoid)
     local ok, current = pcall(function()
         return humanoid:GetAppliedDescription()
     end)
-    if not ok or not current then
-        return false
+    if not ok then
+        return false, current
+    end
+    if not current then
+        return false, "Humanoid did not return an applied description"
     end
 
     if not morphOriginal then
@@ -264,10 +267,20 @@ local function applyMorph(humanoid)
     end
 
     local description = current:Clone()
+    local numericFields = {
+        Shirt = true,
+        Pants = true,
+        GraphicTShirt = true,
+        Face = true,
+    }
+
     for field, value in pairs(MORPH) do
         if value ~= "" then
-            local numeric = tonumber(value)
-            if numeric then
+            if numericFields[field] then
+                local numeric = tonumber(value)
+                if not numeric then
+                    return false, "Invalid asset ID for " .. field
+                end
                 description[field] = numeric
             else
                 description[field] = value
@@ -275,19 +288,28 @@ local function applyMorph(humanoid)
         end
     end
 
-    return pcall(function()
+    local applied, applyError = pcall(function()
         humanoid:ApplyDescription(description)
     end)
+    if not applied then
+        return false, applyError
+    end
+
+    return true
 end
 
 local function revertMorph(humanoid)
     if morphOriginal then
-        local original = morphOriginal
-        morphOriginal = nil
-        pcall(function()
-            humanoid:ApplyDescription(original)
+        local applied, applyError = pcall(function()
+            humanoid:ApplyDescription(morphOriginal)
         end)
+        if not applied then
+            return false, applyError
+        end
+        morphOriginal = nil
     end
+
+    return true
 end
 
 local function toggleMorph(state)
@@ -298,10 +320,14 @@ local function toggleMorph(state)
     end
 
     task.spawn(function() -- ApplyDescription yields
+        local ok, err
         if state then
-            applyMorph(humanoid)
+            ok, err = applyMorph(humanoid)
         else
-            revertMorph(humanoid)
+            ok, err = revertMorph(humanoid)
+        end
+        if not ok then
+            warn("Native menu could not update the avatar morph: " .. tostring(err))
         end
     end)
 end
@@ -314,7 +340,12 @@ track(LocalPlayer.CharacterAdded:Connect(function(character)
         local humanoid = character:WaitForChild("Humanoid", 5)
         if humanoid and G.MorphEnabled then
             task.wait(0.5)
-            applyMorph(humanoid)
+            if runActive and G.MorphEnabled and LocalPlayer.Character == character then
+                local ok, err = applyMorph(humanoid)
+                if not ok then
+                    warn("Native menu could not apply the avatar morph: " .. tostring(err))
+                end
+            end
         end
     end
 end))
@@ -346,6 +377,11 @@ local function stopFly()
     if flyConnection then
         flyConnection:Disconnect()
         flyConnection = nil
+    end
+
+    if flyVelocity then
+        flyVelocity:Destroy()
+        flyVelocity = nil
     end
 
     if flyRoot and flyRoot.Parent then
@@ -410,8 +446,8 @@ local function startFly()
         humanoid.PlatformStand = true
     end
 
-    flyConnection = RunService.RenderStepped:Connect(function()
-        if not hrp.Parent then
+    flyConnection = RunService.RenderStepped:Connect(function(dt)
+        if not hrp.Parent or not bv.Parent then
             stopFly()
             return
         end
@@ -1000,6 +1036,8 @@ Container.AutomaticCanvasSize = Enum.AutomaticSize.Y
 Container.ScrollBarThickness = 4
 Container.Parent = MainFrame
 
+local expandedSize = MainFrame.Size
+
 local function makeTitleButton(text, xOffset, color)
     local button = Instance.new("TextButton")
     button.Size = UDim2.new(0, 28, 0, 28)
@@ -1021,12 +1059,76 @@ end
 local CloseButton = makeTitleButton("X", -34, Color3.fromRGB(190, 60, 60))
 local MinimizeButton = makeTitleButton("-", -66, Color3.fromRGB(60, 60, 75))
 
+local ResizeHandle = Instance.new("TextButton")
+ResizeHandle.Name = "ResizeHandle"
+ResizeHandle.Size = UDim2.new(0, 20, 0, 20)
+ResizeHandle.Position = UDim2.new(1, -22, 1, -22)
+ResizeHandle.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+ResizeHandle.Text = "?"
+ResizeHandle.TextColor3 = Color3.fromRGB(255, 255, 255)
+ResizeHandle.Font = Enum.Font.GothamBold
+ResizeHandle.TextSize = 14
+ResizeHandle.Parent = MainFrame
+
+local resizeInput
+local resizeStartPosition
+local resizeStartSize
+
+track(ResizeHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        resizeInput = input
+        resizeStartPosition = Vector2.new(input.Position.X, input.Position.Y)
+        resizeStartSize = MainFrame.AbsoluteSize
+    end
+end))
+
+track(UserInputService.InputChanged:Connect(function(input)
+    if not resizeInput then
+        return
+    end
+
+    local isMouseMove = resizeInput.UserInputType == Enum.UserInputType.MouseButton1
+        and input.UserInputType == Enum.UserInputType.MouseMovement
+    local isTouchMove = resizeInput.UserInputType == Enum.UserInputType.Touch
+        and input.UserInputType == Enum.UserInputType.Touch
+    if not (isMouseMove or isTouchMove) then
+        return
+    end
+
+    local pointer = Vector2.new(input.Position.X, input.Position.Y)
+    local delta = pointer - resizeStartPosition
+    local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+    local maxWidth = viewport and viewport.X - MainFrame.AbsolutePosition.X or 1000
+    local maxHeight = viewport and viewport.Y - MainFrame.AbsolutePosition.Y or 1000
+    local width = math.clamp(resizeStartSize.X + delta.X, 260, math.max(260, maxWidth))
+    local height = math.clamp(resizeStartSize.Y + delta.Y, 220, math.max(220, maxHeight))
+
+    expandedSize = UDim2.fromOffset(width, height)
+    MainFrame.Size = expandedSize
+end))
+
+track(UserInputService.InputEnded:Connect(function(input)
+    if resizeInput and (
+        (resizeInput.UserInputType == Enum.UserInputType.MouseButton1
+            and input.UserInputType == Enum.UserInputType.MouseButton1)
+            or input == resizeInput
+    ) then
+        resizeInput = nil
+        resizeStartPosition = nil
+        resizeStartSize = nil
+    end
+end))
+
 local minimized = false
 
 track(MinimizeButton.MouseButton1Click:Connect(function()
     minimized = not minimized
     Container.Visible = not minimized
-    MainFrame.Size = UDim2.new(0, 260, 0, minimized and 40 or 420)
+    ResizeHandle.Visible = not minimized
+    MainFrame.Size = minimized
+        and UDim2.fromOffset(expandedSize.X.Offset, 40)
+        or expandedSize
     MinimizeButton.Text = minimized and "+" or "-"
 end))
 
