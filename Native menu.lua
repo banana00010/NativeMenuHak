@@ -47,6 +47,7 @@ default("NametagESPEnabled", false)
 default("ArmorESPEnabled", false)
 default("InvisibleEnabled", false)
 default("MorphEnabled", false)
+default("UnlimitedZoomEnabled", false)
 G.FlyEnabled = false
 local connections = {}
 local togglers = {}
@@ -384,6 +385,39 @@ track(LocalPlayer.CharacterAdded:Connect(function(character)
                 end
             end
         end
+    end
+end))
+
+-- ==========================================================
+-- Unlimited zoom
+-- Allows the camera to zoom out as far as you want. The default max is 400.
+-- ==========================================================
+
+local zoomSaved
+
+local function restoreZoom()
+    if zoomSaved then
+        LocalPlayer.CameraMaxZoomDistance = zoomSaved.max
+        LocalPlayer.CameraMinZoomDistance = zoomSaved.min
+        LocalPlayer.CameraMode = zoomSaved.mode
+        zoomSaved = nil
+    end
+end
+
+track(RunService.RenderStepped:Connect(function()
+    if G.UnlimitedZoomEnabled then
+        if not zoomSaved then
+            zoomSaved = {
+                max = LocalPlayer.CameraMaxZoomDistance,
+                min = LocalPlayer.CameraMinZoomDistance,
+                mode = LocalPlayer.CameraMode,
+            }
+        end
+        LocalPlayer.CameraMaxZoomDistance = 100000
+        LocalPlayer.CameraMinZoomDistance = 0
+        LocalPlayer.CameraMode = Enum.CameraMode.Classic
+    else
+        restoreZoom()
     end
 end))
 
@@ -1382,15 +1416,17 @@ end
 -- Movement
 CreateSection("MOVEMENT")
 
+CreateToggle("Unlimited Zoom", "UnlimitedZoomEnabled", nil)
+
 CreateToggle("Speed", "SpeedEnabled", nil)
-CreateTextBox("WalkSpeed (default 100)", function(val)
-    G.WalkSpeedValue = math.clamp(val, 0, 500)
+CreateTextBox("WalkSpeed (default 16)", function(val)
+    G.WalkSpeedValue = math.clamp(val, 0)
     enable("SpeedEnabled")
 end)
 
 CreateToggle("Jump Power", "JumpEnabled", nil)
-CreateTextBox("Jump Power (default 100)", function(val)
-    G.JumpHeightValue = math.clamp(val, 0, 500)
+CreateTextBox("Jump Power (default 50)", function(val)
+    G.JumpHeightValue = math.clamp(val, 0)
     enable("JumpEnabled")
 end)
 
@@ -1401,8 +1437,8 @@ CreateToggle("Shift Lock", "ShiftLockEnabled", nil)
 CreateHint("Hold Left Alt to free the cursor and use the menu.", 26)
 
 CreateToggle("Fly", "FlyEnabled", toggleFly)
-CreateTextBox("Fly speed (default 75)", function(val)
-    G.FlySpeedValue = math.clamp(val, 0, 500)
+CreateTextBox("Fly speed (default 50)", function(val)
+    G.FlySpeedValue = math.clamp(val, 0)
 end)
 CreateHint("Fly: WASD move, Space/E up, Ctrl/Q down, Shift boost, F toggles fly.", 40)
 
@@ -1415,7 +1451,7 @@ CreateSection("AIMBOT")
 
 CreateToggle("Target Lock", "AimbotEnabled", nil)
 CreateToggle("Skip Teammates", "AimbotTeamCheck", nil)
-CreateTextBox("Aim strength (default 5; 0 = off, 100 = snap)", function(val)
+CreateTextBox("Aim strength (0 = off, 100 = snap)", function(val)
     G.AimbotStrength = math.clamp(val, 0, 100)
 end)
 
@@ -1426,6 +1462,7 @@ CreateToggle("Highlight ESP", "HighlightESPEnabled", RefreshESP)
 CreateToggle("Skeleton ESP", "BoneESPEnabled", RefreshESP)
 CreateToggle("Nametag ESP", "NametagESPEnabled", RefreshESP)
 CreateToggle("Armor ESP", "ArmorESPEnabled", RefreshESP)
+
 
 -- Server stats
 CreateTextBox("Damage multiplier (client-only visual)", function(val)
@@ -1520,6 +1557,7 @@ G.NativeMenuCleanup = function()
         end
     end
     restoreCollisions()
+    restoreZoom()
     restoreVisibility()
     releaseShiftLock()
 
