@@ -258,7 +258,8 @@ end))
 
 local MORPH = {
     HairAccessory = "87924232591985",    -- e.g. "1234567,7654321"
-    FaceAccessory = "126266405484254",
+    FaceAccessory = "",
+    HatAccessory = "126266405484254",
     NeckAccessory = "16988901927",
     ShouldersAccessory = "120579423084182",
     FrontAccessory = "18133081957",
@@ -267,10 +268,18 @@ local MORPH = {
     Shirt = "123781839092808",
     Pants = "115841525903241",
     GraphicTShirt = "",
-    Face = "57888977922523",
+    Face = "",
 }
 
 local morphOriginal -- the description to restore
+local SetStatus
+
+local function reportMorphError(message)
+    warn("Native menu could not update the avatar morph: " .. tostring(message))
+    if SetStatus then
+        SetStatus("Morph failed: " .. tostring(message))
+    end
+end
 
 local function applyMorph(humanoid)
     local ok, current = pcall(function()
@@ -348,7 +357,9 @@ local function toggleMorph(state)
             ok, err = revertMorph(humanoid)
         end
         if not ok then
-            warn("Native menu could not update the avatar morph: " .. tostring(err))
+            reportMorphError(err)
+        else
+            SetStatus(state and "Avatar morph applied." or "Avatar morph reverted.")
         end
     end)
 end
@@ -364,7 +375,7 @@ track(LocalPlayer.CharacterAdded:Connect(function(character)
             if runActive and G.MorphEnabled and LocalPlayer.Character == character then
                 local ok, err = applyMorph(humanoid)
                 if not ok then
-                    warn("Native menu could not apply the avatar morph: " .. tostring(err))
+                    reportMorphError(err)
                 end
             end
         end
@@ -1188,7 +1199,7 @@ end
 
 local StatusLabel
 
-local function SetStatus(text)
+SetStatus = function(text)
     if StatusLabel then
         StatusLabel.Text = text
     end
