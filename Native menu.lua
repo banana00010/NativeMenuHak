@@ -1,5 +1,5 @@
 -- ==========================================================
--- Version number - 0.3.0
+-- Version number - 0.3.1
 -- Native Menu (fixed) - client-side script for your OWN game
 -- ==========================================================
 
@@ -99,10 +99,6 @@ local function SameTeam(player)
 end
 
 -- ==========================================================
--- Movement: speed / jump / noclip (all restore when turned off)
--- ==========================================================
-
--- ==========================================================
 -- Movement: speed / jump / noclip / WASD instant start & stop
 -- ==========================================================
 
@@ -130,6 +126,20 @@ local function restoreCollisions()
     end
 end
 
+-- States where something else is driving the character; instant move stays out of them
+local INSTANT_MOVE_SKIP = {
+    [Enum.HumanoidStateType.Seated] = true,
+    [Enum.HumanoidStateType.Climbing] = true,
+    [Enum.HumanoidStateType.Swimming] = true,
+    [Enum.HumanoidStateType.Flying] = true,
+    [Enum.HumanoidStateType.PlatformStanding] = true,
+    [Enum.HumanoidStateType.Ragdoll] = true,
+    [Enum.HumanoidStateType.FallingDown] = true,
+    [Enum.HumanoidStateType.Physics] = true,
+    [Enum.HumanoidStateType.Dead] = true,
+}
+local instantDriving = false -- true while instant move pushed the character last frame
+
 track(RunService.Stepped:Connect(function()
     local character = LocalPlayer.Character
     if not character then
@@ -152,26 +162,27 @@ track(RunService.Stepped:Connect(function()
             end
             humanoid.WalkSpeed = G.WalkSpeedValue
 
-            -- Instant start and stop logic for all movement keys (W, A, S, D)
-            if G.InstantMoveEnabled and hrp and not UserInputService:GetFocusedTextBox() then
-                local cam = workspace.CurrentCamera
-                if cam then
-                    local moveDir = Vector3.new(0, 0, 0)
-                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
+            -- Instant start and stop. Uses the humanoid's own move direction (keyboard,
+            -- gamepad or touch) and stays out of the way whenever something else is
+            -- driving the character: flying, sitting, climbing, swimming, ragdolls...
+            local driving = false
+            if G.InstantMoveEnabled and hrp and not G.FlyEnabled
+                and not humanoid.Sit and not hrp.Anchored
+                and not INSTANT_MOVE_SKIP[humanoid:GetState()] then
+                local moveDir = humanoid.MoveDirection
+                local velocity = hrp.AssemblyLinearVelocity
 
-                    local flatDir = Vector3.new(moveDir.X, 0, moveDir.Z)
-                    if flatDir.Magnitude > 0 then
-                        flatDir = flatDir.Unit * G.WalkSpeedValue
-                        hrp.AssemblyLinearVelocity = Vector3.new(flatDir.X, hrp.AssemblyLinearVelocity.Y, flatDir.Z)
-                    else
-                        -- Instant stop: zero out horizontal velocity when no movement keys are pressed
-                        hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0)
-                    end
+                if moveDir.Magnitude > 0.05 then
+                    local flat = moveDir.Unit * G.WalkSpeedValue
+                    hrp.AssemblyLinearVelocity = Vector3.new(flat.X, velocity.Y, flat.Z)
+                    driving = true
+                elseif instantDriving and humanoid.FloorMaterial ~= Enum.Material.Air then
+                    -- Keys just released on the ground: stop once, then leave physics alone
+                    -- (so knockback, conveyors and moving platforms still work)
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, velocity.Y, 0)
                 end
             end
+            instantDriving = driving
         elseif saved.walk ~= nil then
             humanoid.WalkSpeed = saved.walk
             saved.walk = nil
@@ -437,7 +448,7 @@ track(RunService.RenderStepped:Connect(function()
             }
         end
         LocalPlayer.CameraMaxZoomDistance = 100000
-        LocalPlayer.CameraMinZoomDistance = -100000
+        LocalPlayer.CameraMinZoomDistance = 0.5
         LocalPlayer.CameraMode = Enum.CameraMode.Classic
     else
         restoreZoom()
@@ -1197,6 +1208,7 @@ local function serverHop()
             friendServers, friendCount, friendsOk = getFriendServers()
         end
         local hitPageCap = false
+        local fetchFailed = false
         local pagesToCheck = preferFriends and SERVER_HOP_MAX_PAGES or 1
 
         local candidates = {}
@@ -1207,6 +1219,7 @@ local function serverHop()
             local body, err = fetchServerPage(cursor)
             if not body then
                 SetStatus("Server hop: " .. err, "warn")
+                fetchFailed = true
                 break
             end
 
@@ -1266,6 +1279,14 @@ local function serverHop()
             else
                 SetStatus("Joining a random server...")
             end
+        end
+
+        if not target then
+            if not fetchFailed then
+                SetStatus("Server hop: no other open servers found.", "warn")
+            end
+            serverHopBusy = false
+            return
         end
 
         local ok, err = pcall(function()
@@ -1447,7 +1468,7 @@ Title.Name = "Title"
 Title.Position = UDim2.new(0, 44, 0, 0)
 Title.Size = UDim2.new(1, -144, 0, 40)
 Title.BackgroundTransparency = 1
-Title.Text = "NATIVE  v0.3.0"
+Title.Text = "NATIVE  v0.3.1"
 Title.TextColor3 = UI_COLORS.Text
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
@@ -1536,18 +1557,18 @@ local function makeTitleButton(text, xOffset, colorKey)
 end
 
 -- Left to right: minimize, reset, close
-local CloseButton = makeTitleButton("×", -34, "Surface")
+local CloseButton = makeTitleButton("X", -34, "Surface")
 CloseButton.BackgroundColor3 = Color3.fromRGB(155, 65, 78)
 themed[#themed] = nil -- the close button keeps its red in every theme
-local ResetButton = makeTitleButton("↺", -66, "Accent")
-local MinimizeButton = makeTitleButton("−", -98, "Surface")
+local ResetButton = makeTitleButton("R", -66, "Accent")
+local MinimizeButton = makeTitleButton("-", -98, "Surface")
 
 local ResizeHandle = Instance.new("TextButton")
 ResizeHandle.Name = "ResizeHandle"
 ResizeHandle.Size = UDim2.new(0, 20, 0, 20)
 ResizeHandle.Position = UDim2.new(1, -22, 1, -22)
 ResizeHandle.BorderSizePixel = 0
-ResizeHandle.Text = "↘"
+ResizeHandle.Text = "//"
 ResizeHandle.TextColor3 = UI_COLORS.Text
 ResizeHandle.Font = Enum.Font.GothamBold
 ResizeHandle.TextSize = 14
@@ -1654,7 +1675,7 @@ track(MinimizeButton.MouseButton1Click:Connect(function()
     MainFrame.Size = minimized
         and UDim2.fromOffset(expandedSize.X.Offset, 40)
         or expandedSize
-    MinimizeButton.Text = minimized and "+" or "−"
+    MinimizeButton.Text = minimized and "+" or "-"
 end))
 
 -- Resets size, position and the minimized state (also in the settings page)
@@ -1665,7 +1686,7 @@ local function resetWindow()
     ResizeHandle.Visible = true
     MainFrame.Size = defaultFrameSize
     MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
-    MinimizeButton.Text = "−"
+    MinimizeButton.Text = "-"
 end
 
 track(ResetButton.MouseButton1Click:Connect(resetWindow))
@@ -1810,7 +1831,7 @@ FooterLabel.TextXAlignment = Enum.TextXAlignment.Left
 FooterLabel.Parent = Body
 
 local function refreshFooter()
-    FooterLabel.Text = "[" .. tostring(G.MenuHotkey) .. "] hide / show menu   ·   logo = settings"
+    FooterLabel.Text = "[" .. tostring(G.MenuHotkey) .. "] hide / show menu  |  logo = settings"
 end
 
 refreshFooter()
@@ -2051,6 +2072,171 @@ local function CreateButton(text, callback)
     track(button.MouseButton1Click:Connect(callback))
 end
 
+-- Player TP: a dropdown listing everyone else in the server.
+-- Click the button to open the list, then click a name to teleport next to them.
+local function teleportToPlayer(target)
+    if not target or target.Parent ~= Players then
+        SetStatus("That player has left the game.", "warn")
+        return
+    end
+
+    local myCharacter = LocalPlayer.Character
+    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+    if not myRoot then
+        SetStatus("Your character isn't loaded yet.", "warn")
+        return
+    end
+
+    local theirCharacter = target.Character
+    local theirRoot = theirCharacter
+        and (theirCharacter:FindFirstChild("HumanoidRootPart") or theirCharacter.PrimaryPart)
+    if not theirRoot then
+        SetStatus(target.DisplayName .. " has no character right now.", "warn")
+        return
+    end
+
+    -- Land 3 studs behind them, facing the same way
+    myCharacter:PivotTo(theirRoot.CFrame * CFrame.new(0, 0, 3))
+    myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    SetStatus("Teleported to " .. target.DisplayName .. ".")
+end
+
+local function CreatePlayerDropdown(text)
+    local ITEM_HEIGHT = 28
+    local MAX_LIST_HEIGHT = 150
+
+    -- Holder grows downward when the list opens, pushing the rows below it
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(1, 0, 0, 0)
+    holder.AutomaticSize = Enum.AutomaticSize.Y
+    holder.BackgroundTransparency = 1
+    holder.BorderSizePixel = 0
+    holder.LayoutOrder = nextOrder()
+    holder.Parent = currentParent
+
+    local holderLayout = Instance.new("UIListLayout")
+    holderLayout.Padding = UDim.new(0, 4)
+    holderLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    holderLayout.Parent = holder
+
+    local header = newButton(holder, UDim2.new(1, 0, 0, 32))
+    header.LayoutOrder = 1
+
+    local list = Instance.new("ScrollingFrame")
+    list.Size = UDim2.new(1, 0, 0, 0)
+    list.BorderSizePixel = 0
+    list.ScrollBarThickness = 3
+    list.CanvasSize = UDim2.new(0, 0, 0, 0)
+    list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    list.Visible = false
+    list.LayoutOrder = 2
+    list.Parent = holder
+    themeBind(list, "BackgroundColor3", "Header")
+    addCorner(list, 7)
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 2)
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.Parent = list
+
+    local listPadding = Instance.new("UIPadding")
+    listPadding.PaddingTop = UDim.new(0, 3)
+    listPadding.PaddingBottom = UDim.new(0, 3)
+    listPadding.PaddingLeft = UDim.new(0, 3)
+    listPadding.PaddingRight = UDim.new(0, 3)
+    listPadding.Parent = list
+
+    local open = false
+
+    local function renderHeader()
+        header.Text = text .. (open and "  ^" or "  v")
+    end
+
+    -- "exclude" is a player who is mid-leave (PlayerRemoving fires before they are gone)
+    local function rebuild(exclude)
+        for _, child in ipairs(list:GetChildren()) do
+            if child:IsA("GuiObject") then
+                child:Destroy()
+            end
+        end
+
+        local others = {}
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player ~= exclude then
+                others[#others + 1] = player
+            end
+        end
+        table.sort(others, function(a, b)
+            return string.lower(a.DisplayName) < string.lower(b.DisplayName)
+        end)
+
+        if #others == 0 then
+            local empty = Instance.new("TextLabel")
+            empty.Size = UDim2.new(1, 0, 0, ITEM_HEIGHT)
+            empty.BackgroundTransparency = 1
+            empty.Text = "No other players in this server"
+            empty.TextColor3 = UI_COLORS.MutedText
+            empty.Font = Enum.Font.Gotham
+            empty.TextSize = 12
+            empty.Parent = list
+        end
+
+        -- Item buttons are destroyed on every rebuild, so their clicks are
+        -- connected directly (tracking them would pile up dead connections).
+        for index, player in ipairs(others) do
+            local item = Instance.new("TextButton")
+            item.Size = UDim2.new(1, 0, 0, ITEM_HEIGHT)
+            item.LayoutOrder = index
+            item.BorderSizePixel = 0
+            item.BackgroundColor3 = UI_COLORS.Surface
+            item.TextColor3 = UI_COLORS.Text
+            item.Font = Enum.Font.Gotham
+            item.TextSize = 12
+            item.TextTruncate = Enum.TextTruncate.AtEnd
+            item.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+            item.Parent = list
+            addCorner(item, 6)
+
+            item.MouseButton1Click:Connect(function()
+                open = false
+                list.Visible = false
+                renderHeader()
+                teleportToPlayer(player)
+            end)
+        end
+
+        local count = math.max(#others, 1)
+        list.Size = UDim2.new(1, 0, 0, math.min(count * (ITEM_HEIGHT + 2) + 6, MAX_LIST_HEIGHT))
+    end
+
+    local function setOpen(state)
+        open = state
+        list.Visible = state
+        if state then
+            rebuild()
+        end
+        renderHeader()
+    end
+
+    renderHeader()
+
+    track(header.MouseButton1Click:Connect(function()
+        setOpen(not open)
+    end))
+
+    -- Keep the list current while it is open
+    track(Players.PlayerAdded:Connect(function()
+        if open then
+            rebuild()
+        end
+    end))
+    track(Players.PlayerRemoving:Connect(function(leaving)
+        if open then
+            rebuild(leaving)
+        end
+    end))
+end
+
 -- Keybinds: click, then press the key you want (Escape cancels)
 local captureHandler
 
@@ -2096,7 +2282,7 @@ local function CreateOpacityRow()
     local row = newRow(32)
 
     local minus = newButton(row, UDim2.new(0, 36, 1, 0))
-    minus.Text = "−"
+    minus.Text = "-"
 
     local plus = newButton(row, UDim2.new(0, 36, 1, 0), UDim2.new(1, -36, 0, 0))
     plus.Text = "+"
@@ -2213,12 +2399,16 @@ CreateToggle("Noclip", "NoClipEnabled")
 
 CreateSection("FLIGHT")
 CreateToggleValue("Fly", "FlyEnabled", "FlySpeedValue", 0, 1000000, false, toggleFly)
-CreateHint("WASD move · Space/E up · Ctrl/Q down · Shift boost · fly key toggles (F by default).", 40)
+CreateHint("WASD move | Space/E up | Ctrl/Q down | Shift boost | fly key toggles (F by default).", 40)
 
 CreateSection("CAMERA")
 CreateToggle("Unlimited Zoom", "UnlimitedZoomEnabled")
 CreateToggle("Shift Lock", "ShiftLockEnabled")
 CreateHint("Hold Left Alt to free the cursor and use the menu.", 26)
+CreateSection("TELEPORT")
+CreatePlayerDropdown("Player TP")
+CreateHint("Click a player's name to teleport next to them.", 20)
+
 CreateSection("SERVER")
 CreateToggle("Prefer friends' servers", "ServerHopPreferFriends")
 CreateButton("Server hop", serverHop)
@@ -2271,7 +2461,7 @@ CreateToggle("Notifications", "ToastsEnabled")
 CreateButton("Reset window", resetWindow)
 CreateButton("Reset all settings", resetAllSettings)
 
--- Secret section: click the logo 5 times quickly to show or hide it
+-- Secret section: double-click the logo to show or hide it
 AdvancedFrame = Instance.new("Frame")
 AdvancedFrame.Name = "Advanced"
 AdvancedFrame.Size = UDim2.new(1, 0, 0, 0)
@@ -2297,7 +2487,7 @@ CreateHint("Fly smoothing: higher = snappier turns and stops, lower = floatier."
 CreateChoice("Aim part", "AimPart", { "Head", "Root" })
 CreateValueRow("Aim FOV (px)", "AimFOV", 0, 5000)
 CreateHint("Aim FOV limits targets to this distance from your cursor. 0 = no limit.", 26)
-CreateHint("Click the logo 5 times quickly to hide this section again.", 26)
+CreateHint("Double-click the logo to hide this section again.", 26)
 
 -- ==========================================================
 -- Logo button: settings page + secret unlock
@@ -2311,13 +2501,13 @@ track(LogoButton.MouseButton1Click:Connect(function()
 
     logoClicks[#logoClicks + 1] = now
     for _, clickTime in ipairs(logoClicks) do
-        if now - clickTime <= 2 then
+        if now - clickTime <= 0.6 then
             recent[#recent + 1] = clickTime
         end
     end
     logoClicks = recent
 
-    if #logoClicks >= 5 then
+    if #logoClicks >= 2 then
         logoClicks = {}
         G.AdvancedUnlocked = not G.AdvancedUnlocked
         AdvancedFrame.Visible = G.AdvancedUnlocked
