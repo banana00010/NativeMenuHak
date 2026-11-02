@@ -324,16 +324,14 @@ end))
 --   W/A/S/D  move relative to where the camera looks
 --   Space/E  up        Ctrl/Q  down        Shift  boost
 --   F        toggle fly on/off
--- Movement eases in and out, and you hover when no key is held.
+-- Movement changes instantly, and you hover when no key is held.
 -- ==========================================================
 
 local FLY_BOOST = 2
 
 local flyConnection
-local flyVelocity
 local flyRoot
 local flyHumanoid
-local flyCurrent = Vector3.new(0, 0, 0)
 
 local function faceCamera(hrp, cam)
     local look = cam.CFrame.LookVector
@@ -350,11 +348,6 @@ local function stopFly()
         flyConnection = nil
     end
 
-    if flyVelocity then
-        flyVelocity:Destroy()
-        flyVelocity = nil
-    end
-
     if flyRoot and flyRoot.Parent then
         flyRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     end
@@ -364,8 +357,6 @@ local function stopFly()
         flyHumanoid.PlatformStand = false
     end
     flyHumanoid = nil
-
-    flyCurrent = Vector3.new(0, 0, 0)
 end
 
 local function readFlyInput(cam)
@@ -411,13 +402,6 @@ local function startFly()
         return
     end
 
-    local bv = Instance.new("BodyVelocity")
-    bv.Name = "NativeFlyBV"
-    bv.Velocity = Vector3.new(0, 0, 0)
-    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    bv.Parent = hrp
-
-    flyVelocity = bv
     flyRoot = hrp
 
     -- Stops the falling/standing animation from fighting the flight
@@ -426,8 +410,8 @@ local function startFly()
         humanoid.PlatformStand = true
     end
 
-    flyConnection = RunService.RenderStepped:Connect(function(dt)
-        if not hrp.Parent or not bv.Parent then
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not hrp.Parent then
             stopFly()
             return
         end
@@ -447,10 +431,7 @@ local function startFly()
             target = dir.Unit * speed
         end
 
-        -- Ease toward the target so starting and stopping feel smooth
-        local alpha = 1 - math.exp(-dt * 10)
-        flyCurrent = flyCurrent:Lerp(target, alpha)
-        bv.Velocity = flyCurrent
+        hrp.AssemblyLinearVelocity = target
     end)
 end
 
