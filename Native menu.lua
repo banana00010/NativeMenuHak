@@ -1,5 +1,5 @@
 -- ==========================================================
--- Version number - 0.3.0
+-- Version number - 0.3.3
 -- Native Menu (fixed) - client-side script for your OWN game
 -- ==========================================================
 
