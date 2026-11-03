@@ -1,5 +1,5 @@
 -- ==========================================================
--- Version number - 0.3.1
+-- Version number - 0.3.0
 -- Native Menu (fixed) - client-side script for your OWN game
 -- ==========================================================
 
@@ -23,10 +23,23 @@ end
 
 local DEFAULTS = {} -- remembered so "Reset all settings" can restore them
 
+-- Tables are copied so a reset never hands back the live (edited) table
+local function copyValue(value)
+    if type(value) ~= "table" then
+        return value
+    end
+
+    local copy = {}
+    for k, v in pairs(value) do
+        copy[k] = v
+    end
+    return copy
+end
+
 local function default(key, value)
     DEFAULTS[key] = value
     if G[key] == nil then
-        G[key] = value
+        G[key] = copyValue(value)
     end
 end
 
@@ -52,8 +65,19 @@ default("UnlimitedZoomEnabled", true)
 -- Menu / customization settings
 default("ThemeName", "Graphite")
 default("MenuOpacity", 0.8)
-default("MenuHotkey", "RightShift")
-default("FlyHotkey", "F")
+-- Keybinds: action id -> key name (see the Keybinds section further down)
+default("Binds", { Menu = "RightShift", FlyEnabled = "F" })
+
+-- One-time carry-over of the old menu key / fly key settings
+if not G.BindsMigrated then
+    G.BindsMigrated = true
+    if type(G.MenuHotkey) == "string" then
+        G.Binds.Menu = G.MenuHotkey
+    end
+    if type(G.FlyHotkey) == "string" then
+        G.Binds.FlyEnabled = G.FlyHotkey
+    end
+end
 default("ServerHopPreferFriends", false)
 default("ToastsEnabled", true)
 
@@ -1208,7 +1232,6 @@ local function serverHop()
             friendServers, friendCount, friendsOk = getFriendServers()
         end
         local hitPageCap = false
-        local fetchFailed = false
         local pagesToCheck = preferFriends and SERVER_HOP_MAX_PAGES or 1
 
         local candidates = {}
@@ -1219,7 +1242,6 @@ local function serverHop()
             local body, err = fetchServerPage(cursor)
             if not body then
                 SetStatus("Server hop: " .. err, "warn")
-                fetchFailed = true
                 break
             end
 
@@ -1279,14 +1301,6 @@ local function serverHop()
             else
                 SetStatus("Joining a random server...")
             end
-        end
-
-        if not target then
-            if not fetchFailed then
-                SetStatus("Server hop: no other open servers found.", "warn")
-            end
-            serverHopBusy = false
-            return
         end
 
         local ok, err = pcall(function()
@@ -1355,6 +1369,86 @@ local THEMES = {
         Surface = Color3.fromRGB(66, 38, 44),
         Accent = Color3.fromRGB(190, 62, 84),
         Border = Color3.fromRGB(110, 62, 70),
+    },
+    {
+        name = "Ocean",
+        Background = Color3.fromRGB(14, 28, 40),
+        Header = Color3.fromRGB(20, 42, 58),
+        Surface = Color3.fromRGB(28, 56, 76),
+        Accent = Color3.fromRGB(30, 134, 180),
+        Border = Color3.fromRGB(48, 88, 112),
+    },
+    {
+        name = "Sunset",
+        Background = Color3.fromRGB(34, 24, 20),
+        Header = Color3.fromRGB(52, 36, 28),
+        Surface = Color3.fromRGB(68, 46, 36),
+        Accent = Color3.fromRGB(200, 98, 44),
+        Border = Color3.fromRGB(110, 76, 58),
+    },
+    {
+        name = "Rose",
+        Background = Color3.fromRGB(34, 20, 28),
+        Header = Color3.fromRGB(52, 28, 42),
+        Surface = Color3.fromRGB(68, 38, 56),
+        Accent = Color3.fromRGB(196, 78, 132),
+        Border = Color3.fromRGB(112, 66, 90),
+    },
+    {
+        name = "Mint",
+        Background = Color3.fromRGB(18, 32, 32),
+        Header = Color3.fromRGB(26, 48, 48),
+        Surface = Color3.fromRGB(34, 62, 62),
+        Accent = Color3.fromRGB(44, 158, 138),
+        Border = Color3.fromRGB(58, 98, 96),
+    },
+    {
+        name = "Slate",
+        Background = Color3.fromRGB(28, 32, 38),
+        Header = Color3.fromRGB(40, 46, 54),
+        Surface = Color3.fromRGB(52, 60, 70),
+        Accent = Color3.fromRGB(100, 120, 148),
+        Border = Color3.fromRGB(76, 86, 100),
+    },
+    {
+        name = "Amber",
+        Background = Color3.fromRGB(32, 28, 16),
+        Header = Color3.fromRGB(50, 44, 22),
+        Surface = Color3.fromRGB(66, 58, 30),
+        Accent = Color3.fromRGB(184, 134, 24),
+        Border = Color3.fromRGB(108, 96, 52),
+    },
+    {
+        name = "Ink",
+        Background = Color3.fromRGB(10, 10, 12),
+        Header = Color3.fromRGB(20, 20, 24),
+        Surface = Color3.fromRGB(30, 30, 36),
+        Accent = Color3.fromRGB(70, 76, 92),
+        Border = Color3.fromRGB(50, 50, 58),
+    },
+    {
+        name = "Plum",
+        Background = Color3.fromRGB(30, 18, 34),
+        Header = Color3.fromRGB(46, 26, 52),
+        Surface = Color3.fromRGB(62, 36, 70),
+        Accent = Color3.fromRGB(160, 66, 182),
+        Border = Color3.fromRGB(100, 62, 110),
+    },
+    {
+        name = "Cobalt",
+        Background = Color3.fromRGB(16, 20, 40),
+        Header = Color3.fromRGB(24, 32, 64),
+        Surface = Color3.fromRGB(32, 44, 88),
+        Accent = Color3.fromRGB(56, 86, 224),
+        Border = Color3.fromRGB(56, 70, 122),
+    },
+    {
+        name = "Lime",
+        Background = Color3.fromRGB(22, 30, 16),
+        Header = Color3.fromRGB(32, 46, 22),
+        Surface = Color3.fromRGB(42, 62, 28),
+        Accent = Color3.fromRGB(86, 146, 30),
+        Border = Color3.fromRGB(72, 98, 50),
     },
 }
 
@@ -1468,7 +1562,7 @@ Title.Name = "Title"
 Title.Position = UDim2.new(0, 44, 0, 0)
 Title.Size = UDim2.new(1, -144, 0, 40)
 Title.BackgroundTransparency = 1
-Title.Text = "NATIVE  v0.3.1"
+Title.Text = "NATIVE  v0.3.0"
 Title.TextColor3 = UI_COLORS.Text
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
@@ -1831,7 +1925,9 @@ FooterLabel.TextXAlignment = Enum.TextXAlignment.Left
 FooterLabel.Parent = Body
 
 local function refreshFooter()
-    FooterLabel.Text = "[" .. tostring(G.MenuHotkey) .. "] hide / show menu  |  logo = settings"
+    local menuKey = G.Binds.Menu
+    FooterLabel.Text = (menuKey and ("[" .. menuKey .. "] hide / show menu") or "menu key not set")
+        .. "  |  logo = settings"
 end
 
 refreshFooter()
@@ -1938,6 +2034,195 @@ local function CreateHint(text, height)
     label.Parent = currentParent
 end
 
+-- ==========================================================
+-- Keybinds
+-- Every toggle and bindable button registers an "action" here. Keys are
+-- stored in G.Binds (action id -> key name). The settings page lists one
+-- row per action, warns about conflicts, and the hotkey handler at the
+-- bottom of the script fires the bound actions.
+-- ==========================================================
+
+local Keys = {
+    actions = {},
+    order = {},
+    capture = nil, -- set while a keybind button is waiting for a key press
+    warnColor = Color3.fromRGB(255, 200, 90),
+    -- Keys the menu already uses itself (flying, shift lock)
+    reserved = {
+        W = "movement / fly forward",
+        A = "movement / fly left",
+        S = "movement / fly back",
+        D = "movement / fly right",
+        Space = "jumping / fly up",
+        E = "fly up",
+        Q = "fly down",
+        LeftControl = "fly down",
+        LeftShift = "fly boost",
+        LeftAlt = "freeing the cursor (Shift Lock)",
+    },
+}
+
+function Keys.register(id, label, run)
+    if not Keys.actions[id] then
+        Keys.order[#Keys.order + 1] = id
+    end
+    Keys.actions[id] = { label = label, run = run }
+end
+
+-- Labels of the OTHER actions bound to the same key as this one
+function Keys.conflicts(id)
+    local keyName = G.Binds[id]
+    local found = {}
+
+    if keyName then
+        for _, otherId in ipairs(Keys.order) do
+            if otherId ~= id and G.Binds[otherId] == keyName then
+                found[#found + 1] = Keys.actions[otherId].label
+            end
+        end
+    end
+
+    return found
+end
+
+-- One line per shared key, e.g. "[X]: Speed, Noclip"
+function Keys.conflictSummary()
+    local byKey, keyOrder = {}, {}
+
+    for _, id in ipairs(Keys.order) do
+        local keyName = G.Binds[id]
+        if keyName then
+            if not byKey[keyName] then
+                byKey[keyName] = {}
+                keyOrder[#keyOrder + 1] = keyName
+            end
+            table.insert(byKey[keyName], Keys.actions[id].label)
+        end
+    end
+
+    local lines = {}
+    for _, keyName in ipairs(keyOrder) do
+        if #byKey[keyName] > 1 then
+            lines[#lines + 1] = "[" .. keyName .. "]: " .. table.concat(byKey[keyName], ", ")
+        end
+    end
+
+    return lines
+end
+
+-- Runs every action bound to this key (pcall so one bad action can't block the rest)
+function Keys.fire(keyName)
+    for _, id in ipairs(Keys.order) do
+        if G.Binds[id] == keyName then
+            local action = Keys.actions[id]
+            local ok, err = pcall(action.run)
+            if not ok then
+                SetStatus(action.label .. " failed: " .. tostring(err), "warn")
+            end
+        end
+    end
+end
+
+-- Settings row: "Speed | [X]". Click the key button, then press a key.
+function Keys.createRow(id)
+    local action = Keys.actions[id]
+    local row = newRow(32)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.58, -3, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = action.label
+    label.TextColor3 = UI_COLORS.Text
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.Parent = row
+
+    local button = newButton(row, UDim2.new(0.42, -3, 1, 0), UDim2.new(0.58, 3, 0, 0))
+    button.TextSize = 12
+
+    local function refresh()
+        local keyName = G.Binds[id]
+        button.Text = keyName or "None"
+
+        if #Keys.conflicts(id) > 0 then
+            button.TextColor3 = Keys.warnColor
+        elseif keyName then
+            button.TextColor3 = UI_COLORS.Text
+        else
+            button.TextColor3 = UI_COLORS.MutedText
+        end
+    end
+
+    refresh()
+    refreshers[#refreshers + 1] = refresh
+
+    track(button.MouseButton1Click:Connect(function()
+        runRefreshers() -- puts any other row that was waiting back to normal
+        button.Text = "press a key..."
+
+        Keys.capture = function(keyCode)
+            if keyCode == Enum.KeyCode.Escape then
+                -- cancelled, nothing changes
+            elseif keyCode == Enum.KeyCode.Backspace then
+                G.Binds[id] = nil
+                SetStatus(action.label .. " keybind cleared.")
+            elseif keyCode ~= Enum.KeyCode.Unknown then
+                local keyName = keyCode.Name
+                G.Binds[id] = keyName
+
+                local others = Keys.conflicts(id)
+                if #others > 0 then
+                    SetStatus("Conflict: [" .. keyName .. "] also bound to "
+                        .. table.concat(others, ", "), "warn")
+                elseif Keys.reserved[keyName] then
+                    SetStatus("Heads up: [" .. keyName .. "] is also used for "
+                        .. Keys.reserved[keyName], "warn")
+                else
+                    SetStatus(action.label .. " bound to [" .. keyName .. "].")
+                end
+            end
+
+            runRefreshers()
+        end
+    end))
+end
+
+-- Line at the top of the keybind list: lists every shared key, or says all clear
+function Keys.createSummary()
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 0)
+    label.AutomaticSize = Enum.AutomaticSize.Y
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 11
+    label.TextWrapped = true
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Top
+    label.LayoutOrder = nextOrder()
+    label.Parent = currentParent
+
+    local function refresh()
+        local lines = Keys.conflictSummary()
+
+        if #lines > 0 then
+            label.Text = "Conflicting keybinds (all of them fire):\n" .. table.concat(lines, "\n")
+            label.TextColor3 = Keys.warnColor
+        else
+            label.Text = "No keybind conflicts."
+            label.TextColor3 = UI_COLORS.MutedText
+        end
+    end
+
+    refresh()
+    refreshers[#refreshers + 1] = refresh
+end
+
+Keys.register("Menu", "Hide / show menu", function()
+    MainFrame.Visible = not MainFrame.Visible
+end)
+
 local function bindToggleText(button, text, key)
     local function render()
         if G[key] then
@@ -1958,14 +2243,17 @@ local function CreateToggle(text, key, callback)
     local button = newButton(row, UDim2.new(1, 0, 1, 0))
     bindToggleText(button, text, key)
 
-    track(button.MouseButton1Click:Connect(function()
+    local function flip()
         G[key] = not G[key]
         togglers[key]()
 
         if callback then
             callback(G[key])
         end
-    end))
+    end
+
+    Keys.register(key, text, flip)
+    track(button.MouseButton1Click:Connect(flip))
 end
 
 -- A toggle and its number box side by side, e.g. "Speed: ON | 100"
@@ -1983,14 +2271,17 @@ local function CreateToggleValue(text, key, valueKey, minV, maxV, autoEnable, ca
     refreshBox()
     refreshers[#refreshers + 1] = refreshBox
 
-    track(button.MouseButton1Click:Connect(function()
+    local function flip()
         G[key] = not G[key]
         togglers[key]()
 
         if callback then
             callback(G[key])
         end
-    end))
+    end
+
+    Keys.register(key, text, flip)
+    track(button.MouseButton1Click:Connect(flip))
 
     track(box.FocusLost:Connect(function()
         local num = tonumber(box.Text)
@@ -2065,10 +2356,16 @@ local function CreateChoice(text, key, options)
     end))
 end
 
-local function CreateButton(text, callback)
+-- Pass an actionId to make the button bindable to a key in the settings
+local function CreateButton(text, callback, actionId)
     local row = newRow(32)
     local button = newButton(row, UDim2.new(1, 0, 1, 0))
     button.Text = text
+
+    if actionId then
+        Keys.register(actionId, text, callback)
+    end
+
     track(button.MouseButton1Click:Connect(callback))
 end
 
@@ -2237,47 +2534,6 @@ local function CreatePlayerDropdown(text)
     end))
 end
 
--- Keybinds: click, then press the key you want (Escape cancels)
-local captureHandler
-
-local function keyFromName(name)
-    local ok, keyCode = pcall(function()
-        return Enum.KeyCode[name]
-    end)
-
-    if ok then
-        return keyCode
-    end
-    return nil
-end
-
-local function CreateKeybind(text, key, otherKey)
-    local row = newRow(32)
-    local button = newButton(row, UDim2.new(1, 0, 1, 0))
-
-    local function refresh()
-        button.Text = text .. ": " .. tostring(G[key])
-    end
-
-    refresh()
-    refreshers[#refreshers + 1] = refresh
-
-    track(button.MouseButton1Click:Connect(function()
-        button.Text = text .. ": press a key..."
-
-        captureHandler = function(keyCode)
-            if keyCode ~= Enum.KeyCode.Escape and keyCode ~= Enum.KeyCode.Unknown then
-                if G[otherKey] == keyCode.Name then
-                    SetStatus("That key is already used by another action.")
-                else
-                    G[key] = keyCode.Name
-                end
-            end
-            runRefreshers()
-        end
-    end))
-end
-
 local function CreateOpacityRow()
     local row = newRow(32)
 
@@ -2325,36 +2581,42 @@ local function setTheme(name)
 end
 
 local function CreateThemePicker()
-    local row = newRow(32)
-    local count = #THEMES
+    local PER_ROW = 5
 
-    for index, theme in ipairs(THEMES) do
-        local button = Instance.new("TextButton")
-        button.Size = UDim2.new(1 / count, -4, 1, 0)
-        button.Position = UDim2.new((index - 1) / count, 2, 0, 0)
-        button.BackgroundColor3 = theme.Accent
-        button.BorderSizePixel = 0
-        button.Text = theme.name
-        button.Font = Enum.Font.GothamBold
-        button.TextSize = 9
-        button.TextColor3 = Color3.fromRGB(255, 255, 255)
-        button.Parent = row
-        addCorner(button, 6)
+    for rowStart = 1, #THEMES, PER_ROW do
+        local row = newRow(32)
 
-        local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(255, 255, 255)
-        stroke.Thickness = 2
-        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-        stroke.Enabled = G.ThemeName == theme.name
-        stroke.Parent = button
+        for column = 1, PER_ROW do
+            local theme = THEMES[rowStart + column - 1]
+            if theme then
+                local button = Instance.new("TextButton")
+                button.Size = UDim2.new(1 / PER_ROW, -4, 1, 0)
+                button.Position = UDim2.new((column - 1) / PER_ROW, 2, 0, 0)
+                button.BackgroundColor3 = theme.Accent
+                button.BorderSizePixel = 0
+                button.Text = theme.name
+                button.Font = Enum.Font.GothamBold
+                button.TextSize = 9
+                button.TextColor3 = Color3.fromRGB(255, 255, 255)
+                button.Parent = row
+                addCorner(button, 6)
 
-        refreshers[#refreshers + 1] = function()
-            stroke.Enabled = G.ThemeName == theme.name
+                local stroke = Instance.new("UIStroke")
+                stroke.Color = Color3.fromRGB(255, 255, 255)
+                stroke.Thickness = 2
+                stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                stroke.Enabled = G.ThemeName == theme.name
+                stroke.Parent = button
+
+                refreshers[#refreshers + 1] = function()
+                    stroke.Enabled = G.ThemeName == theme.name
+                end
+
+                track(button.MouseButton1Click:Connect(function()
+                    setTheme(theme.name)
+                end))
+            end
         end
-
-        track(button.MouseButton1Click:Connect(function()
-            setTheme(theme.name)
-        end))
     end
 end
 
@@ -2368,8 +2630,9 @@ local function resetAllSettings()
     local wasMorph = G.MorphEnabled
 
     for key, value in pairs(DEFAULTS) do
-        G[key] = value
+        G[key] = copyValue(value)
     end
+    Keys.capture = nil
 
     G.FlyEnabled = false
     stopFly()
@@ -2411,7 +2674,7 @@ CreateHint("Click a player's name to teleport next to them.", 20)
 
 CreateSection("SERVER")
 CreateToggle("Prefer friends' servers", "ServerHopPreferFriends")
-CreateButton("Server hop", serverHop)
+CreateButton("Server hop", serverHop, "ServerHop")
 
 -- ==========================================================
 -- COMBAT tab
@@ -2452,9 +2715,27 @@ CreateSection("APPEARANCE")
 CreateThemePicker()
 CreateOpacityRow()
 
-CreateSection("CONTROLS")
-CreateKeybind("Menu key", "MenuHotkey", "FlyHotkey")
-CreateKeybind("Fly key", "FlyHotkey", "MenuHotkey")
+CreateSection("KEYBINDS")
+CreateHint("Click a key button, then press the key you want. Backspace clears, Escape cancels.", 26)
+
+-- The rows are added further down, once every toggle has registered its action
+do
+    local frame = Instance.new("Frame")
+    frame.Name = "Keybinds"
+    frame.Size = UDim2.new(1, 0, 0, 0)
+    frame.AutomaticSize = Enum.AutomaticSize.Y
+    frame.BackgroundTransparency = 1
+    frame.BorderSizePixel = 0
+    frame.LayoutOrder = nextOrder()
+    frame.Parent = pageSettings
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, 8)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = frame
+
+    Keys.frame = frame
+end
 
 CreateSection("GENERAL")
 CreateToggle("Notifications", "ToastsEnabled")
@@ -2488,6 +2769,22 @@ CreateChoice("Aim part", "AimPart", { "Head", "Root" })
 CreateValueRow("Aim FOV (px)", "AimFOV", 0, 5000)
 CreateHint("Aim FOV limits targets to this distance from your cursor. 0 = no limit.", 26)
 CreateHint("Double-click the logo to hide this section again.", 26)
+
+-- Keybind rows: built last so every toggle above has registered its action
+currentParent = Keys.frame
+Keys.createSummary()
+for _, id in ipairs(Keys.order) do
+    Keys.createRow(id)
+end
+CreateButton("Clear all keybinds", function()
+    for id in pairs(G.Binds) do
+        G.Binds[id] = nil
+    end
+    Keys.capture = nil
+    runRefreshers()
+    SetStatus("All keybinds cleared.")
+end)
+currentParent = pageSettings
 
 -- ==========================================================
 -- Logo button: settings page + secret unlock
@@ -2524,7 +2821,7 @@ track(LogoButton.MouseButton1Click:Connect(function()
 end))
 
 -- ==========================================================
--- Hotkeys (menu key and fly key are rebindable in settings)
+-- Hotkeys (every toggle and bindable button can be bound in settings)
 -- ==========================================================
 
 track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -2533,9 +2830,9 @@ track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 
     -- A keybind button is waiting for the next key press
-    if captureHandler then
-        local handler = captureHandler
-        captureHandler = nil
+    if Keys.capture then
+        local handler = Keys.capture
+        Keys.capture = nil
         handler(input.KeyCode)
         return
     end
@@ -2544,15 +2841,7 @@ track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         return
     end
 
-    if input.KeyCode == keyFromName(G.MenuHotkey) then
-        MainFrame.Visible = not MainFrame.Visible
-    elseif input.KeyCode == keyFromName(G.FlyHotkey) then
-        G.FlyEnabled = not G.FlyEnabled
-        if togglers.FlyEnabled then
-            togglers.FlyEnabled()
-        end
-        toggleFly(G.FlyEnabled)
-    end
+    Keys.fire(input.KeyCode.Name)
 end))
 
 -- Should set the player atutribe to true so i never die
